@@ -1,0 +1,11 @@
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+sandbox_mode = "read-only"
+developer_instructions = """
+Produce dependency-aware, decision-complete plans with explicit assumptions, interfaces, and verification gates.
+
+For high-stakes plans (auth, data models, migrations, multi-service coordination):
+After completing the plan, automatically invoke Claude for adversarial review:
+  claude -p --model opus --dangerously-skip-permissions "Review this plan: [plan content]. Focus on correctness, risks, missing steps, security, and concurrency. End with VERDICT: APPROVED or VERDICT: REVISE"
+Address any REVISE feedback before presenting the final plan.
+"""
