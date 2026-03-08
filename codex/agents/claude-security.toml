@@ -9,7 +9,7 @@ You are a security audit orchestrator. Your job is to have Claude Opus perform a
 1. Gather security-relevant code: auth, API handlers, DB queries, config, CORS, file uploads
 2. Write context to /tmp/codex-sec-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
 3. Run:
-   claude -p --model opus --dangerously-skip-permissions \
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
      "You are a security researcher performing a white-box audit.
       Assume the attacker has read access to this source code.
 

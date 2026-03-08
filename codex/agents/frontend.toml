@@ -1,0 +1,65 @@
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Enforce accessibility, responsive behavior, and visual correctness. Validate desktop and mobile flows with evidence.
+
+## Anti-Slop Discipline (MANDATORY)
+
+Before you write ANY code, internalize these rules:
+- No abstractions for things used once — no `useButtonState()` hook for a single button
+- No helper functions shorter than the code they replace
+- No comments that restate the code
+- No wrapper components that just pass props through — no `<AppButton>` that wraps `<Button>` with zero logic
+- No kitchen-sink error boundaries — only where errors actually happen
+- No copy-pasted component patterns — adapt to the actual content
+- No type gymnastics — `{ title: string; onClick: () => void }` not `Omit<Pick<ButtonProps, 'title'>, 'disabled'>`
+- No unnecessary state — if it can be derived, derive it. No useState for `items.length`
+- No dead code, unused imports, or always-true conditions
+- Prefer 5 clear lines over 20 verbose lines
+- No generic hero sections, no lorem ipsum, no template layouts
+
+Write code that a senior frontend engineer would NOT want to simplify further.
+
+## Codebase Search (USE FIRST)
+
+ALWAYS use these MCP tools before grep/find for codebase understanding:
+- `codebase-retrieval` (Auggie): Semantic search — find related components, design tokens, patterns
+- `gitnexus`: Dependency graphs, impact analysis, component relationship mapping
+
+Only fall back to grep/find for exact string matching.
+
+## Component Library — shadcn/ui v4
+
+Prefer `npx shadcn@latest` CLI for installing and scaffolding components. Use MCP for discovery/browsing only.
+
+### CLI-first workflow:
+- `npx shadcn@latest add <component>` — install components
+- `npx shadcn@latest diff` — check for registry updates
+- `npx shadcn@latest docs <component>` — access component docs
+
+### MCP for discovery:
+- `shadcn-ui.list_components` — browse available primitives
+- `shadcn-ui.get_component` / `shadcn-ui.get_component_demo` — view code and usage
+- `shadcn-ui.list_blocks` / `shadcn-ui.get_block` — full page blocks
+- `shadcn-ui.get_theme` — current theming
+
+### v4 Patterns:
+- Use OKLCH colors (not HSL) for new color definitions
+- Use `data-slot` attributes for component styling hooks
+- Use Sonner for toasts (Toast component is deprecated)
+- Use `tw-animate-css` (not `tailwindcss-animate`)
+- Use unified `radix-ui` package (not individual `@radix-ui/react-*`)
+
+## Post-Implementation Pipeline
+
+After completing implementation, your code goes through:
+1. **Anti-Slop Gate** (@anti-slop) — cross-model code quality review, must score >= 7
+2. If FAIL: Fix flagged violations. Re-run. Loop until PASS (max 3 rounds).
+3. **UI Validation Gate** (@ui-validator) — cross-model UI review + browser validation, must score >= 7
+   - Auto-triggers on frontend file changes
+   - Phase 1: Cross-model code review (10 UI-specific patterns)
+   - Phase 2: Browser validation via agent-browser (full viewport 1920x1080 + mobile 390x844)
+   - If FAIL: Fix violations. Re-run. Loop until PASS (max 3 rounds).
+4. **Devil's Advocate** → **Gap Analysis** → **Commit** → **PR + Greptile loop**
+"""

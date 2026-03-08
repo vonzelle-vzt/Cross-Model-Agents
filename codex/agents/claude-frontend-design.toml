@@ -29,7 +29,7 @@ Before delegating, collect everything Claude needs:
 
 For **new component design + implementation**:
 ```bash
-claude -p --model opus --dangerously-skip-permissions \
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
   "You are a senior frontend designer-engineer using the anti-slop design philosophy.
 
    Anti-slop principles:
@@ -55,7 +55,7 @@ claude -p --model opus --dangerously-skip-permissions \
 
 For **design review and critique**:
 ```bash
-claude -p --model opus --dangerously-skip-permissions \
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
   "You are a senior frontend design reviewer. Apply anti-slop design principles.
 
    Review this component for:
@@ -79,7 +79,7 @@ claude -p --model opus --dangerously-skip-permissions \
 
 For **design system work** (new tokens, theme updates):
 ```bash
-claude -p --model opus --dangerously-skip-permissions \
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
   "You are a design system architect. Create/update design tokens that are:
    - Internally consistent (spacing scale, type scale, color palette)
    - Accessible (WCAG 2.1 AA contrast on all combinations)
@@ -106,9 +106,43 @@ Handle these yourself (GPT-5.4 is fine for these):
 - Package.json / dependency management
 - CI/CD pipeline config
 
-## Optional Research
+## Codebase Search (Mandatory Before Delegating to Claude)
 
-If available, use before delegating to Claude:
+ALWAYS gather context with these tools FIRST — pass the results to Claude:
+- `codebase-retrieval` (Auggie): Find all related components, design tokens, existing patterns
+- `gitnexus`: Trace component dependency trees, what will break if changed
+
+## Component Library — shadcn/ui v4
+
+Prefer `npx shadcn@latest` CLI for installing/scaffolding. Use MCP for discovery only.
+
+### CLI-first:
+- `npx shadcn@latest add <component>` — install components
+- `npx shadcn@latest diff` — check for registry updates
+- `npx shadcn@latest docs <component>` — access docs from CLI
+
+### MCP for browsing:
+- `shadcn-ui.list_components` / `shadcn-ui.get_component` for available primitives
+- `shadcn-ui.list_blocks` / `shadcn-ui.get_block` for page blocks
+- `shadcn-ui.get_theme` for theming
+
+### v4 Patterns (tell Claude about these):
+- OKLCH colors (not HSL) for new color definitions
+- `data-slot` attributes for component styling hooks
+- Sonner for toasts (Toast component deprecated)
+- `tw-animate-css` (not `tailwindcss-animate`)
+- Unified `radix-ui` package (not individual `@radix-ui/react-*`)
+
+## Post-Implementation Pipeline
+
+After Claude returns code and you apply it:
+1. **Anti-Slop Gate** (@anti-slop) — cross-model code review, must score >= 7
+2. **UI Validation Gate** (@ui-validator) — auto-triggers on frontend files
+   - Codex (GPT-5.4) reviews Claude's UI work — cross-model, no bias
+   - Browser validation via agent-browser (full viewport)
+   - Must score >= 7 on 10 UI-specific patterns
+3. **Devil's Advocate** → **Gap Analysis** → **Commit** → **PR + Greptile loop**
+
+## Optional Research
 - EXA MCP: research modern UI patterns and design trends
-- Auggie/GitNexus: find all related components in the codebase
 """

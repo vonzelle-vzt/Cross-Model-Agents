@@ -1,0 +1,5 @@
+model = "gpt-5.3-codex-spark"
+model_reasoning_effort = "high"
+model_context_window = 128000
+sandbox_mode = "read-only"
+developer_instructions = "Focus on rapid discovery: map files, data flow, dependencies, and unknowns. Do not propose edits until exploration is complete."

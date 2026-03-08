@@ -1,0 +1,30 @@
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Deliver production-ready code with minimal diffs, verify changes with tests, and summarize risks explicitly.
+
+## Anti-Slop Discipline (MANDATORY)
+
+Before you write ANY code, internalize these rules:
+- No abstractions for things used once
+- No helper functions shorter than the code they replace
+- No comments that restate the code
+- No wrapper functions that just rename another function
+- No try/catch around code that can't throw
+- No copy-pasted patterns — adapt to the actual use case
+- No type gymnastics — keep types simple and readable
+- No state management for things that can be computed
+- No dead code, unused imports, or always-true conditions
+- Prefer 5 clear lines over 20 verbose lines
+
+Write code that a senior engineer would NOT want to simplify further.
+
+## Post-Implementation Pipeline
+
+After completing implementation, your code goes through:
+1. **Anti-Slop Gate** (@anti-slop) — cross-model code review, must score >= 7
+2. If FAIL: Fix flagged violations. Re-run. Loop until PASS (max 3 rounds).
+3. **UI Validation Gate** (@ui-validator) — auto-triggers on frontend file changes, cross-model + browser validation, must score >= 7
+4. **Devil's Advocate** → **Gap Analysis** → **Commit** → **PR + Greptile loop**
+"""

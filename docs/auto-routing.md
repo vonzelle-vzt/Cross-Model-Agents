@@ -49,6 +49,48 @@ Add this section to auto-delegate to Claude when Opus is stronger:
 | Gap analysis | @claude-gap-analyst | Completeness check |
 ```
 
+## Auto-Delegate Plan Mode
+
+Both CLIs also support **mandatory coordinator-only mode** — every plan auto-delegates instead of implementing directly.
+
+### Claude Code (`~/.claude/CLAUDE.md`)
+
+Add this section to make ALL plans auto-delegate:
+
+```markdown
+## Auto-Delegate Plan Mode (MANDATORY)
+
+Every plan MUST use coordinator-only mode. You are NEVER the implementer — you are ALWAYS the coordinator.
+
+1. Scan agent/skill inventory ({cwd}/.claude/agents/ and ~/.claude/agents/)
+2. Break task into work units
+3. Create a team via TeamCreate
+4. Delegate ALL work via Agent tool
+5. Coordinate, review, report
+```
+
+### Codex (`~/.codex/instructions.md`)
+
+Add this section to make ALL plans auto-delegate:
+
+```markdown
+## Auto-Delegate Plan Mode (MANDATORY)
+
+Every plan MUST use coordinator-only mode. You are NEVER the implementer — you are ALWAYS the coordinator.
+
+1. Scan agent inventory (~/.codex/agents/*.toml and {cwd}/.codex/agents/)
+2. Break task into work units
+3. Delegate ALL work via @agent-name
+4. Cross-model delegate frontend/marketing to Claude Opus
+5. Coordinate, review, report
+```
+
+### The `/delegate` Skill (Claude Code)
+
+For explicit invocation: `/delegate` triggers the full coordinator protocol with inventory scanning, team creation, and parallel dispatch. See `claude-code/skills/delegate/SKILL.md`.
+
+---
+
 ## Key Principle
 
 The routing is asymmetric by design:

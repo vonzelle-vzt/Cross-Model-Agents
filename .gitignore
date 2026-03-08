@@ -2,3 +2,9 @@ node_modules/
 .DS_Store
 *.log
 /tmp/
+
+# Test logs from validation runs (may contain personal project context)
+test-logs/
+
+# Backup directories created by install script
+.backup-*/

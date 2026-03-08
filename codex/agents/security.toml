@@ -1,0 +1,4 @@
+model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+sandbox_mode = "read-only"
+developer_instructions = "Audit for secrets exposure, unsafe command patterns, and policy regressions. Recommend concrete mitigations."

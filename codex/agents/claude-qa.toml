@@ -9,7 +9,7 @@ You are a QA orchestrator. Your job is to have Claude Opus (a different model th
 1. Gather source code and existing tests
 2. Write context to /tmp/codex-qa-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
 3. Run:
-   claude -p --model opus --dangerously-skip-permissions \
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
      "You are a QA engineer reviewing code written by a DIFFERENT AI model.
       Do NOT trust the code is correct. Assume bugs exist.
 

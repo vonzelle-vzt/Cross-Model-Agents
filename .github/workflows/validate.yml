@@ -1,0 +1,127 @@
+name: Validate Agents
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate TOML files
+        run: |
+          set -e
+          failed=0
+          for f in $(find codex/agents -name '*.toml' 2>/dev/null); do
+            if python3 -c "import tomllib; tomllib.load(open('$f', 'rb'))" 2>&1; then
+              echo "OK: $f"
+            else
+              echo "FAIL: $f"
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::One or more TOML files failed to parse"
+            exit 1
+          fi
+          echo "All TOML files valid."
+
+      - name: Validate Markdown headings
+        run: |
+          set -e
+          failed=0
+
+          echo "=== Checking claude-code/agents/ ==="
+          for f in $(find claude-code/agents -name '*.md' 2>/dev/null); do
+            first_line=$(head -n 1 "$f")
+            if echo "$first_line" | grep -q '^# '; then
+              echo "OK: $f"
+            else
+              echo "FAIL: $f (first line: '$first_line')"
+              failed=1
+            fi
+          done
+
+          echo ""
+          echo "=== Checking claude-code/skills/ SKILL.md files ==="
+          for f in $(find claude-code/skills -name 'SKILL.md' 2>/dev/null); do
+            # Handle YAML frontmatter: skip --- block if present
+            first_line=$(head -n 1 "$f")
+            if echo "$first_line" | grep -q '^---$'; then
+              # Find the closing --- and check the next non-empty line
+              heading=$(awk 'NR==1{next} /^---$/{found=1;next} found && /^# /{print;exit}' "$f")
+              if [ -n "$heading" ]; then
+                echo "OK: $f (frontmatter + heading)"
+              else
+                echo "FAIL: $f (has frontmatter but no # heading after it)"
+                failed=1
+              fi
+            elif echo "$first_line" | grep -q '^# '; then
+              echo "OK: $f"
+            else
+              echo "FAIL: $f (first line: '$first_line')"
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::One or more Markdown files missing # heading on line 1"
+            exit 1
+          fi
+          echo "All Markdown headings valid."
+
+      - name: Check uninstall.sh sync
+        run: |
+          set -e
+          missing=0
+
+          if [ ! -f scripts/uninstall.sh ]; then
+            echo "::error::scripts/uninstall.sh not found"
+            exit 1
+          fi
+
+          echo "=== Checking Claude Code agents ==="
+          for f in $(find claude-code/agents -name '*.md' 2>/dev/null); do
+            name=$(basename "$f" .md)
+            if grep -q "$name" scripts/uninstall.sh; then
+              echo "OK: $name found in uninstall.sh"
+            else
+              echo "MISSING: $name not found in uninstall.sh"
+              missing=1
+            fi
+          done
+
+          echo ""
+          echo "=== Checking Codex agents ==="
+          for f in $(find codex/agents -name '*.toml' 2>/dev/null); do
+            name=$(basename "$f" .toml)
+            if grep -q "$name" scripts/uninstall.sh; then
+              echo "OK: $name found in uninstall.sh"
+            else
+              echo "MISSING: $name not found in uninstall.sh"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -eq 1 ]; then
+            echo "::error::Some agents are missing from scripts/uninstall.sh. Update the uninstall script to include all agents."
+            exit 1
+          fi
+          echo "All agents accounted for in uninstall.sh."
+
+      - name: Shell syntax check
+        run: |
+          set -e
+          bash -n scripts/install.sh
+          echo "OK: scripts/install.sh"
+          bash -n scripts/uninstall.sh
+          echo "OK: scripts/uninstall.sh"
+          echo "All shell scripts have valid syntax."

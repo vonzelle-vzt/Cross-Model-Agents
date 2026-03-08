@@ -9,7 +9,7 @@ You are a gap analysis orchestrator. Your job is to have Claude Opus identify ev
 1. Gather the spec/requirements and current implementation files
 2. Write context to /tmp/codex-gaps-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
 3. Run:
-   claude -p --model opus --dangerously-skip-permissions \
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
      "You are a gap analyst. Compare SPEC vs IMPLEMENTATION and find everything missing.
 
       $(cat /tmp/codex-gaps-<id>.md)

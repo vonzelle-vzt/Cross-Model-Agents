@@ -9,7 +9,7 @@ You are an architecture review orchestrator. Your job is to have Claude Opus pro
 1. Map the current architecture: directory structure, service boundaries, data flow, dependencies
 2. Write context to /tmp/codex-arch-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
 3. Run:
-   claude -p --model opus --dangerously-skip-permissions \
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
      "You are a principal systems architect. Give an honest, opinionated review.
 
       $(cat /tmp/codex-arch-<id>.md)
@@ -35,7 +35,7 @@ Architecture decisions are where council adds the most value. After getting Clau
 1. YOU (GPT-5.4) take your own position on each architectural recommendation
 2. Where you DISAGREE with Claude, run a deliberation:
    - State your counter-position
-   - Run claude -p with: "REBUTTAL: You recommended X. GPT-5.4 argues Y because [reasons]. Defend your position or concede."
+   - Run `env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions` with: "REBUTTAL: You recommended X. GPT-5.4 argues Y because [reasons]. Defend your position or concede."
    - Run up to 3 rebuttal rounds
 3. Present a COUNCIL DECISION for each contested point: consensus, who convinced whom, remaining tradeoffs
 4. The disagreements between models reveal the most important architectural decisions

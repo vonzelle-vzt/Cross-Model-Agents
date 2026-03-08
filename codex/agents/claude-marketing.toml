@@ -31,7 +31,7 @@ Before delegating, collect everything Claude needs:
 
 For **landing page copy**:
 ```bash
-claude -p --model opus --dangerously-skip-permissions \
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
   "You are a senior copywriter and conversion specialist.
 
    Brand: <brand name and positioning>
@@ -54,7 +54,7 @@ claude -p --model opus --dangerously-skip-permissions \
 
 For **email sequences**:
 ```bash
-claude -p --model opus --dangerously-skip-permissions \
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
   "You are an email copywriter specializing in <type: welcome, nurture, sales, re-engagement>.
 
    Brand voice: <guidelines>
@@ -78,7 +78,7 @@ claude -p --model opus --dangerously-skip-permissions \
 
 For **ad copy and social content**:
 ```bash
-claude -p --model opus --dangerously-skip-permissions \
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
   "You are a performance marketing copywriter.
 
    Platform: <platform — Meta, Google, X, LinkedIn, etc.>
@@ -99,7 +99,7 @@ claude -p --model opus --dangerously-skip-permissions \
 
 For **content strategy and copy review**:
 ```bash
-claude -p --model opus --dangerously-skip-permissions \
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
   "You are a senior content strategist and copy editor.
 
    Review this marketing copy:
