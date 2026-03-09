@@ -105,6 +105,16 @@ When gap analysis reveals that a "gap" might actually be an **intentional design
 
 This prevents false positives in gap reports — some "gaps" are actually good engineering decisions.
 
+## Pipeline Checkpoint
+
+After completing the gap analysis, record the result in the pipeline checkpoint:
+
+```bash
+"$HOME/.local/bin/pipeline-gate.sh" gap_analysis completed
+```
+
+This is MANDATORY. The commit will be blocked if this gate hasn't been recorded.
+
 ## Constraints
 
 - Never fix gaps — report only

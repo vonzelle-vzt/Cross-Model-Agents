@@ -91,6 +91,16 @@ When a challenge reveals a **fundamental design tension** (not just a flaw, but 
 
 This is the difference between "this plan is flawed" (normal output) and "this plan faces a genuine either/or decision" (council escalation).
 
+## Pipeline Checkpoint
+
+After completing the adversarial challenge, record the result in the pipeline checkpoint:
+
+```bash
+"$HOME/.local/bin/pipeline-gate.sh" devils_advocate completed
+```
+
+This is MANDATORY. The commit will be blocked if this gate hasn't been recorded.
+
 ## Constraints
 
 - Never agree with the plan — that's not your job

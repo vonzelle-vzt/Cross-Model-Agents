@@ -137,6 +137,20 @@ Return results:
 - Overall VERDICT: PASS or FAIL
 - If FAIL: the implementation agent fixes, then UI validator re-runs (max 3 rounds)
 
+## Pipeline Checkpoint
+
+After completing UI validation (pass or fail), record the result in the pipeline checkpoint:
+
+```bash
+# On PASS (all files >= 7):
+"$HOME/.local/bin/pipeline-gate.sh" ui_validation passed <overall_score> <round_number>
+
+# On FAIL (any file < 7):
+"$HOME/.local/bin/pipeline-gate.sh" ui_validation failed <lowest_score> <round_number>
+```
+
+This is MANDATORY. The commit will be blocked if frontend files were changed and this gate hasn't been recorded. Always record the result after each round, even if re-running after fixes.
+
 ## Council Escalation
 
 When the UI reviewer flags something as a design violation but the implementation agent disagrees (claims it's intentional design choice):

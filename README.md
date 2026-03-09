@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Opus_4.6-blueviolet)](https://docs.claude.com/en/docs/claude-code)
 [![Codex CLI](https://img.shields.io/badge/Codex_CLI-GPT--5.4-green)](https://github.com/openai/codex)
-[![Agents](https://img.shields.io/badge/Agents-26-orange)]()
+[![Agents](https://img.shields.io/badge/Agents-31-orange)]()
 [![Skills](https://img.shields.io/badge/Skills-3-yellow)]()
 
 ---
@@ -31,7 +31,7 @@ Copy-paste this entire block into Claude Code, Codex, Cursor, Windsurf, or any A
 > - In Codex: `@claude-reviewer Review my implementation`
 > - In Claude Code: `/council Should we use X or Y?`
 >
-> **What you get:** 10 Claude Code agents, 3 skills, 18 Codex agents, anti-slop scoring gate, UI validation gate, multi-model council debates. All agents degrade gracefully without optional MCP servers.
+> **What you get:** 10 Claude Code agents, 3 skills, 21 Codex agents, pipeline enforcement (commit gates, post-edit reminders, session checks), anti-slop scoring, UI validation, multi-model council debates. All agents degrade gracefully without optional MCP servers.
 >
 > **Read the full docs:** https://github.com/Dallionking/cross-model-agents
 
@@ -132,6 +132,39 @@ Every implementation follows this mandatory pipeline. No exceptions.
      |
      v
   Merge
+```
+
+### Pipeline Enforcement
+
+The pipeline is **enforced**, not advisory. Three mechanisms prevent ungated code from being committed:
+
+| Mechanism | Type | What It Does |
+|-----------|------|-------------|
+| **Post-edit reminder** | Claude Code PostToolUse hook | After every file edit, injects a reminder about required gates into the conversation |
+| **Commit gate** | Claude Code PreToolUse hook + git pre-commit hook | **Blocks `git commit`** if required gates haven't passed |
+| **Session check** | Claude Code Stop hook | Warns when ending a session with incomplete gates |
+
+**Checkpoint system:** Pipeline state is tracked in `/tmp/pipeline-state-{repo}-{branch}.json`. Each gate agent records its result via `pipeline-gate.sh`. The commit gate reads this file to decide whether to allow or block.
+
+**Emergency override:** `SKIP_PIPELINE_CHECK=1 git commit -m "message"` bypasses the gate (use sparingly).
+
+```
+Edit code
+   |
+   v
+PostToolUse hook tracks files + reminds about gates
+   |
+   v
+Run gate agents (anti-slop, devil's advocate, gap analysis, UI validation)
+   |
+   v
+Each agent records result via pipeline-gate.sh
+   |
+   v
+commit_allowed = true when all gates pass
+   |
+   v
+git commit unblocked
 ```
 
 ### The Anti-Slop Gate (Bidirectional)
@@ -383,12 +416,13 @@ cd cross-model-agents
 ./scripts/install.sh
 ```
 
-The installer is **interactive** and walks you through 4 phases:
+The installer is **interactive** and walks you through 5 phases:
 
 1. **Prerequisites** -- checks that Claude Code and/or Codex CLI are installed and authenticated
-2. **Core agents** -- copies agent files to `~/.claude/agents/` and `~/.codex/agents/` (with backup of existing agents)
-3. **Optional CLI tools** -- asks if you want `agent-browser` (for UI validation) and `shadcn/ui` CLI
-4. **Optional MCP servers** -- lists each MCP with a description, asks if you want it, and guides API key setup
+2. **Core agents** -- symlinks agent files to `~/.claude/agents/` and `~/.codex/agents/` (with backup of existing agents). Use `--copy` flag for portable copies instead of symlinks.
+3. **Pipeline enforcement** -- installs pipeline checkpoint scripts to `~/.local/bin/` and a git pre-commit hook to `~/.githooks/`
+4. **Optional CLI tools** -- asks if you want `agent-browser` (for UI validation) and `shadcn/ui` CLI
+5. **Optional MCP servers** -- lists each MCP with a description, asks if you want it, and guides API key setup
 
 No MCPs are installed without your consent. Agents gracefully skip unavailable MCPs.
 
@@ -396,9 +430,11 @@ No MCPs are installed without your consent. Agents gracefully skip unavailable M
 
 | Component | Count | Location |
 |-----------|-------|----------|
-| Claude Code agents | 10 | `~/.claude/agents/` |
+| Claude Code agents | 10 | `~/.claude/agents/` (symlinked) |
 | Claude Code skills | 3 | `~/.claude/skills/` |
-| Codex agents | 18 | `~/.codex/agents/` |
+| Codex agents | 21 | `~/.codex/agents/` (symlinked) |
+| Pipeline scripts | 8 | `~/.local/bin/` (symlinked) |
+| Git pre-commit hook | 1 | `~/.githooks/pre-commit` |
 
 ### Optional MCP Servers
 
@@ -421,13 +457,21 @@ These are offered during install. All are optional -- agents work without them.
 If you prefer to copy files yourself:
 
 ```bash
-# Claude Code agents and skills
-cp claude-code/agents/*.md ~/.claude/agents/
+# Claude Code agents and skills (symlinks recommended)
+for f in claude-code/agents/*.md; do ln -sf "$(pwd)/$f" ~/.claude/agents/; done
 cp -r claude-code/skills/* ~/.claude/skills/
 
 # Codex agents
 mkdir -p ~/.codex/agents
-cp codex/agents/*.toml ~/.codex/agents/
+for f in codex/agents/*.toml; do ln -sf "$(pwd)/$f" ~/.codex/agents/; done
+
+# Pipeline scripts
+mkdir -p ~/.local/bin
+for f in scripts/pipeline/*.sh; do chmod +x "$f" && ln -sf "$(pwd)/$f" ~/.local/bin/; done
+
+# Or use copies instead of symlinks:
+# cp claude-code/agents/*.md ~/.claude/agents/
+# cp codex/agents/*.toml ~/.codex/agents/
 ```
 
 ### Uninstall
@@ -530,6 +574,9 @@ Here is what happens when you ask Codex to build a feature:
 | Agent definitions (Codex) | `~/.codex/agents/*.toml` | TOML files with model, sandbox_mode, and developer_instructions |
 | Codex config | `~/.codex/config.toml` | Global Codex settings (model, reasoning effort, etc.) |
 | Claude config | `~/.claude/settings.json` | Claude Code settings, hooks, MCP servers |
+| Pipeline checkpoint | `/tmp/pipeline-state-{repo}-{branch}.json` | Tracks which gates have passed in the current session |
+| Pipeline scripts | `~/.local/bin/pipeline-*.sh` | Enforcement scripts (symlinked from repo) |
+| Git hooks | `~/.githooks/pre-commit` | Blocks commits without completed gates |
 | Auto-routing rules | Your `CLAUDE.md` and `instructions.md` | Project or global instructions that trigger auto-delegation |
 
 ### Codex Agent TOML Format
@@ -720,6 +767,16 @@ cross-model-agents/
   scripts/
     install.sh                 # One-command installation
     uninstall.sh               # Clean removal
+    verify-install.sh            # Check installation integrity
+    pipeline/                  # Pipeline enforcement scripts
+      pipeline-init.sh           # Initialize checkpoint
+      pipeline-gate.sh           # Record gate results
+      pipeline-check.sh          # Verify gates passed
+      pipeline-reset.sh          # Clean up after commit
+      track-file-change.sh       # Track modified files
+      post-edit-reminder.sh      # PostToolUse hook
+      pre-commit-gate.sh         # PreToolUse commit gate
+      stop-gate.sh               # Stop hook
   test-logs/                   # Bidirectional test results (gitignored)
     TEST-REPORT.md
   .github/
@@ -743,10 +800,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 Key things to know:
 - Agent definitions are plain text (Markdown for Claude, TOML for Codex) -- no build step
+- Agents are installed as **symlinks** by default -- changes to the source files are immediately reflected
+- Run `scripts/verify-install.sh` to check that installed agents are in sync with the source
 - The install script (`scripts/install.sh`) copies files to global config directories
 - Test by running agents manually and checking that cross-model delegation works
 - All agents should degrade gracefully when optional MCP tools are unavailable
 - The anti-slop scoring formula is non-negotiable (it is the core quality gate)
+- The pipeline enforcement scripts (`scripts/pipeline/`) gate commits -- do not weaken their checks
 
 ---
 

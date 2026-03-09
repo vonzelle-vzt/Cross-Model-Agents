@@ -108,6 +108,20 @@ If after 3 rounds a file still fails:
 - Flag as ANTI-SLOP-BLOCKED for the user to review
 - Do NOT let it through
 
+## Pipeline Checkpoint
+
+After completing the anti-slop review (pass or fail), record the result in the pipeline checkpoint:
+
+```bash
+# On PASS (all files >= 7):
+"$HOME/.local/bin/pipeline-gate.sh" anti_slop passed <overall_score> <round_number>
+
+# On FAIL (any file < 7):
+"$HOME/.local/bin/pipeline-gate.sh" anti_slop failed <lowest_score> <round_number>
+```
+
+This is MANDATORY. The commit will be blocked if this gate hasn't been recorded. Always record the result after each round, even if re-running after fixes.
+
 ## Rules
 
 - You are a BLOCKER. Code does not ship without your approval.

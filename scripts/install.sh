@@ -9,6 +9,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
+# Parse flags
+USE_SYMLINKS=true
+for arg in "$@"; do
+  case "$arg" in
+    --copy) USE_SYMLINKS=false ;;
+    --help|-h) echo "Usage: ./install.sh [--copy]"; echo "  --copy: Use copies instead of symlinks (default: symlinks)"; exit 0 ;;
+  esac
+done
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -100,16 +109,29 @@ if $CLAUDE_OK; then
     info "Backed up existing agents to $BACKUP_DIR"
   fi
 
-  cp "$REPO_DIR"/claude-code/agents/*.md "$CLAUDE_AGENTS/"
   CLAUDE_AGENT_COUNT=$(ls "$REPO_DIR"/claude-code/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
-  ok "Installed $CLAUDE_AGENT_COUNT Claude Code agents → $CLAUDE_AGENTS"
+  if $USE_SYMLINKS; then
+    for agent_file in "$REPO_DIR"/claude-code/agents/*.md; do
+      ln -sf "$agent_file" "$CLAUDE_AGENTS/$(basename "$agent_file")"
+    done
+    ok "Symlinked $CLAUDE_AGENT_COUNT Claude Code agents → $CLAUDE_AGENTS"
+  else
+    cp "$REPO_DIR"/claude-code/agents/*.md "$CLAUDE_AGENTS/"
+    ok "Copied $CLAUDE_AGENT_COUNT Claude Code agents → $CLAUDE_AGENTS"
+  fi
 
   # Skills
   for skill_dir in "$REPO_DIR"/claude-code/skills/*/; do
     if [ -d "$skill_dir" ]; then
       skill_name=$(basename "$skill_dir")
       mkdir -p "$CLAUDE_SKILLS/$skill_name"
-      cp "$skill_dir"*.md "$CLAUDE_SKILLS/$skill_name/" 2>/dev/null || true
+      if $USE_SYMLINKS; then
+        for skill_file in "$skill_dir"*.md; do
+          [ -f "$skill_file" ] && ln -sf "$skill_file" "$CLAUDE_SKILLS/$skill_name/$(basename "$skill_file")"
+        done
+      else
+        cp "$skill_dir"*.md "$CLAUDE_SKILLS/$skill_name/" 2>/dev/null || true
+      fi
       SKILL_COUNT=$((SKILL_COUNT + 1))
     fi
   done
@@ -133,9 +155,79 @@ if $CODEX_OK; then
     info "Backed up existing agents to $BACKUP_DIR"
   fi
 
-  cp "$REPO_DIR"/codex/agents/*.toml "$CODEX_AGENTS/"
   CODEX_AGENT_COUNT=$(ls "$REPO_DIR"/codex/agents/*.toml 2>/dev/null | wc -l | tr -d ' ')
-  ok "Installed $CODEX_AGENT_COUNT Codex agents → $CODEX_AGENTS"
+  if $USE_SYMLINKS; then
+    for agent_file in "$REPO_DIR"/codex/agents/*.toml; do
+      ln -sf "$agent_file" "$CODEX_AGENTS/$(basename "$agent_file")"
+    done
+    ok "Symlinked $CODEX_AGENT_COUNT Codex agents → $CODEX_AGENTS"
+  else
+    cp "$REPO_DIR"/codex/agents/*.toml "$CODEX_AGENTS/"
+    ok "Copied $CODEX_AGENT_COUNT Codex agents → $CODEX_AGENTS"
+  fi
+fi
+
+# Pipeline enforcement scripts
+PIPELINE_DIR="$REPO_DIR/scripts/pipeline"
+if [ -d "$PIPELINE_DIR" ]; then
+  chmod +x "$PIPELINE_DIR"/*.sh 2>/dev/null || true
+  ok "Pipeline scripts ready at $PIPELINE_DIR"
+
+  # Symlink pipeline scripts to ~/.local/bin for portable agent references
+  LOCAL_BIN="$HOME/.local/bin"
+  mkdir -p "$LOCAL_BIN"
+  for script in "$PIPELINE_DIR"/*.sh; do
+    ln -sf "$script" "$LOCAL_BIN/$(basename "$script")"
+  done
+  ok "Pipeline scripts linked to $LOCAL_BIN"
+
+  # Install git pre-commit hook
+  GITHOOKS_DIR="$HOME/.githooks"
+  mkdir -p "$GITHOOKS_DIR"
+  if [ -f "$GITHOOKS_DIR/pre-commit" ]; then
+    info "Git pre-commit hook already exists — skipping (check manually)"
+  else
+    cat > "$GITHOOKS_DIR/pre-commit" << 'HOOKEOF'
+#!/bin/bash
+# Pipeline enforcement pre-commit hook
+# Installed by cross-model-agents installer
+# Override: SKIP_PIPELINE_CHECK=1 git commit ...
+
+if [ "${SKIP_PIPELINE_CHECK:-0}" = "1" ]; then
+  echo "⚠ Pipeline check skipped (SKIP_PIPELINE_CHECK=1)"
+  exit 0
+fi
+
+REPO_SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || echo 'unknown')")
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')
+BRANCH_SAFE=$(echo "$BRANCH" | tr '/' '-')
+CHECKPOINT="/tmp/pipeline-state-${REPO_SLUG}-${BRANCH_SAFE}.json"
+
+# No checkpoint = no pipeline active = allow commit
+[ ! -f "$CHECKPOINT" ] && exit 0
+
+ALLOWED=$(jq -r '.commit_allowed' "$CHECKPOINT" 2>/dev/null)
+if [ "$ALLOWED" = "true" ]; then
+  exit 0
+fi
+
+echo ""
+echo "PIPELINE GATE: Commit blocked — required gates not completed"
+echo ""
+jq -r '
+  .gates as $g |
+  "  anti_slop: " + (if $g.anti_slop.status == "passed" then "PASSED" else "NOT PASSED" end) + "\n" +
+  "  devils_advocate: " + (if $g.devils_advocate.status == "completed" then "COMPLETED" else "NOT RUN" end) + "\n" +
+  "  gap_analysis: " + (if $g.gap_analysis.status == "completed" then "COMPLETED" else "NOT RUN" end) +
+  (if .has_frontend_changes then "\n  ui_validation: " + (if $g.ui_validation.status == "passed" then "PASSED" else "NOT PASSED" end) else "" end)
+' "$CHECKPOINT" 2>/dev/null || echo "  (could not read checkpoint)"
+echo ""
+echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."
+exit 1
+HOOKEOF
+    chmod +x "$GITHOOKS_DIR/pre-commit"
+    ok "Installed git pre-commit hook → $GITHOOKS_DIR/pre-commit"
+  fi
 fi
 
 echo ""
@@ -361,8 +453,20 @@ echo -e "${BOLD}Installation Complete${NC}"
 echo -e "${BOLD}────────────────────────────────────────${NC}"
 echo ""
 echo -e "  ${GREEN}Agents:${NC}"
-[ $CLAUDE_AGENT_COUNT -gt 0 ] && echo "    $CLAUDE_AGENT_COUNT Claude Code agents → ~/.claude/agents/"
-[ $CODEX_AGENT_COUNT -gt 0 ] && echo "    $CODEX_AGENT_COUNT Codex agents → ~/.codex/agents/"
+if [ $CLAUDE_AGENT_COUNT -gt 0 ]; then
+  if $USE_SYMLINKS; then
+    echo "    $CLAUDE_AGENT_COUNT Claude Code agents (symlinked) → ~/.claude/agents/"
+  else
+    echo "    $CLAUDE_AGENT_COUNT Claude Code agents (copied) → ~/.claude/agents/"
+  fi
+fi
+if [ $CODEX_AGENT_COUNT -gt 0 ]; then
+  if $USE_SYMLINKS; then
+    echo "    $CODEX_AGENT_COUNT Codex agents (symlinked) → ~/.codex/agents/"
+  else
+    echo "    $CODEX_AGENT_COUNT Codex agents (copied) → ~/.codex/agents/"
+  fi
+fi
 [ $SKILL_COUNT -gt 0 ] && echo "    $SKILL_COUNT Claude Code skills → ~/.claude/skills/"
 echo ""
 
