@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
@@ -56,9 +57,8 @@ Read every changed file completely. Note the project's existing patterns so you 
 
 Claude catches different slop patterns than GPT-5.4. Send ALL changed files to Claude:
 
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are the Anti-Slop Reviewer. Score this code for AI slop patterns.
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are the Anti-Slop Reviewer. Score this code for AI slop patterns.
 
    CHANGED FILES:
    <all file contents>
@@ -91,9 +91,41 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
    End with:
    VERDICT: PASS (all files >= 7) or VERDICT: FAIL (any file < 7)
    List each file with its score."
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 ### 4. Report Results
+
+After receiving Claude's review, output a **structured JSON block** for machine parsing, followed by the human-readable report:
+
+```json
+{
+  "verdict": "PASS",
+  "overall_score": 8.5,
+  "round": 1,
+  "files": [
+    {
+      "path": "src/auth.ts",
+      "score": 8.5,
+      "violations": [
+        {
+          "line": 42,
+          "pattern": 3,
+          "pattern_name": "Comment-Restates-Code",
+          "severity": "minor",
+          "description": "Comment restates what the code does",
+          "fix": "Remove comment or explain WHY"
+        }
+      ]
+    }
+  ]
+}
+```
+
+This JSON block MUST appear in your response wrapped in a json code fence. It enables automated pipeline integration and deterministic result parsing.
 
 Return Claude's scores and violations to the orchestrator. If any file scores below 7:
 - The implementation agent MUST fix the flagged violations

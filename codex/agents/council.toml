@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
@@ -23,9 +24,8 @@ Before starting the debate, gather relevant context:
 
 ### Phase 1: Opening Positions
 1. YOU take a clear, opinionated position first (no hedging)
-2. Get Claude's position:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "STRUCTURED DEBATE: Take a CLEAR position on this question. Don't hedge.
+2. Get Claude's position using the claude-code-mcp tool:
+   mcp claude_code with prompt: "STRUCTURED DEBATE: Take a CLEAR position on this question. Don't hedge.
 
       CODEBASE CONTEXT:
       <auggie and gitnexus findings>
@@ -39,29 +39,36 @@ Before starting the debate, gather relevant context:
       4) What you'd NOT do and why
 
       Be direct. The other model will challenge you."
+
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 3. Show both positions to the user
 
 ### Phase 2: Rebuttals (max 3 rounds)
 Each round:
 1. YOU rebut Claude's position. Concede where right. Counter where wrong.
-2. Send your rebuttal to Claude:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "DEBATE ROUND <N>. Your previous position: <Claude's last>.
+2. Send your rebuttal to Claude using the claude-code-mcp tool:
+   mcp claude_code with prompt: "DEBATE ROUND <N>. Your previous position: <Claude's last>.
       GPT-5.4's rebuttal: <your rebuttal>.
       CODEBASE EVIDENCE: <relevant code/deps>
       Where GPT is RIGHT: concede explicitly.
       Where GPT is WRONG: counter-argue with evidence.
       End with UPDATED POSITION."
+
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 3. Check convergence. If positions merged, move to synthesis.
 
 ### Phase 3: Synthesis
 1. Write a merged recommendation
-2. Send to Claude for validation:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "SYNTHESIS VALIDATION. Does this represent consensus?
+2. Send to Claude for validation using the claude-code-mcp tool:
+   mcp claude_code with prompt: "SYNTHESIS VALIDATION. Does this represent consensus?
       SYNTHESIS: <merged position>. YOUR LAST POSITION: <Claude's last>.
       Rate: FULL CONSENSUS / PARTIAL CONSENSUS / DEADLOCK
       List any unresolved disagreements."
+
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 
 ### Phase 4: Present
 Output the Council Decision with:

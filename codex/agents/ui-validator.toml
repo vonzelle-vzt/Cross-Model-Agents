@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
@@ -67,9 +68,8 @@ FAIL = score < 7
 3. Read the project's design system (tailwind config, globals.css, design tokens) for baseline.
 4. Send to Claude for cross-model UI review:
 
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are the UI Validation Reviewer. You have the frontend-design skill's anti-slop principles.
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are the UI Validation Reviewer. You have the frontend-design skill's anti-slop principles.
 
    CHANGED FRONTEND FILES:
    <all file contents>
@@ -100,6 +100,10 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
 
    End with:
    VERDICT: PASS (all files >= 7) or VERDICT: FAIL (any file < 7)"
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 ### Phase 2: Browser Validation (Visual)
@@ -129,6 +133,40 @@ After code review, validate in the browser using agent-browser CLI:
 5. If the dev server isn't running, skip browser validation and note it in the report.
 
 ### Phase 3: Report
+
+Output a **structured JSON block** for machine parsing, followed by the human-readable report:
+
+```json
+{
+  "verdict": "PASS",
+  "overall_score": 8.0,
+  "round": 1,
+  "files": [
+    {
+      "path": "src/components/Button.tsx",
+      "score": 8.0,
+      "violations": [
+        {
+          "line": 15,
+          "pattern": 2,
+          "pattern_name": "No Accessibility",
+          "severity": "critical",
+          "description": "Missing ARIA label on interactive element",
+          "fix": "Add aria-label to button"
+        }
+      ]
+    }
+  ],
+  "browser_validation": {
+    "ran": true,
+    "desktop_pass": true,
+    "mobile_pass": true,
+    "console_errors": 0
+  }
+}
+```
+
+This JSON block MUST appear in your response wrapped in a json code fence. It enables automated pipeline integration and deterministic result parsing.
 
 Return to the orchestrator:
 - Code review scores (per file)

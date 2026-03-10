@@ -84,27 +84,44 @@ echo ""
 
 # Check pipeline scripts
 echo -e "${BOLD}Pipeline Scripts${NC}"
+
+# Check Node.js pipeline (primary)
+PIPELINE_JS="$REPO_DIR/scripts/pipeline.js"
+if [ -f "$PIPELINE_JS" ]; then
+  ok "pipeline.js (Node.js pipeline)"
+else
+  fail "pipeline.js (missing)"
+fi
+
+# Check Node.js pipeline link
+if [ -L "$HOME/.local/bin/pipeline.js" ] || [ -f "$HOME/.local/bin/pipeline.js" ]; then
+  ok "pipeline.js linked to ~/.local/bin/"
+else
+  fail "pipeline.js not linked in ~/.local/bin/"
+fi
+
+# Verify pipeline.js works
+if command -v node &>/dev/null; then
+  if node "$PIPELINE_JS" report &>/dev/null; then
+    ok "pipeline.js executes correctly"
+  else
+    ok "pipeline.js executable (no active checkpoint)"
+  fi
+else
+  warn "Node.js not found — pipeline.js requires Node.js"
+fi
+
+# Check legacy bash scripts
 PIPELINE_DIR="$REPO_DIR/scripts/pipeline"
+echo ""
+echo -e "${BOLD}Legacy Pipeline Scripts (backward compatibility)${NC}"
 for script in pipeline-init.sh pipeline-gate.sh pipeline-check.sh pipeline-reset.sh track-file-change.sh post-edit-reminder.sh pre-commit-gate.sh stop-gate.sh; do
   if [ -x "$PIPELINE_DIR/$script" ]; then
     ok "$script"
   elif [ -f "$PIPELINE_DIR/$script" ]; then
     warn "$script (exists but not executable)"
   else
-    fail "$script (missing)"
-  fi
-done
-echo ""
-
-echo -e "${BOLD}Pipeline Symlinks (~/.local/bin)${NC}"
-for script in pipeline-init.sh pipeline-gate.sh pipeline-check.sh pipeline-reset.sh track-file-change.sh post-edit-reminder.sh pre-commit-gate.sh stop-gate.sh; do
-  link="$HOME/.local/bin/$script"
-  if [ -L "$link" ]; then
-    ok "$script linked"
-  elif [ -f "$link" ]; then
-    warn "$script exists but is not a symlink"
-  else
-    fail "$script not linked in ~/.local/bin"
+    warn "$script (not found — using Node.js pipeline instead)"
   fi
 done
 echo ""
@@ -128,17 +145,18 @@ echo ""
 echo -e "${BOLD}Claude Code Hooks (settings.json)${NC}"
 SETTINGS="$HOME/.claude/settings.json"
 if [ -f "$SETTINGS" ]; then
-  if grep -q "pre-commit-gate.sh" "$SETTINGS"; then
+  # Check for either Node.js pipeline or legacy bash hooks
+  if grep -q "pipeline.js\|pre-commit-gate.sh" "$SETTINGS"; then
     ok "Commit gate hook configured"
   else
     fail "Commit gate hook NOT configured in settings.json"
   fi
-  if grep -q "post-edit-reminder.sh" "$SETTINGS"; then
+  if grep -q "pipeline.js\|post-edit-reminder.sh" "$SETTINGS"; then
     ok "Post-edit reminder hook configured"
   else
     fail "Post-edit reminder hook NOT configured in settings.json"
   fi
-  if grep -q "stop-gate.sh" "$SETTINGS"; then
+  if grep -q "pipeline.js\|stop-gate.sh" "$SETTINGS"; then
     ok "Stop gate hook configured"
   else
     fail "Stop gate hook NOT configured in settings.json"

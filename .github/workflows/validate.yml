@@ -16,6 +16,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Validate TOML files
         run: |
           set -e
@@ -125,3 +129,9 @@ jobs:
           bash -n scripts/uninstall.sh
           echo "OK: scripts/uninstall.sh"
           echo "All shell scripts have valid syntax."
+
+      - name: Static agent validation
+        run: node tests/static/validate-agents.js
+
+      - name: Pipeline unit tests
+        run: node tests/pipeline/test-pipeline.js

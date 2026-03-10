@@ -1,7 +1,7 @@
 ---
-name: delegate
-description: "Delegate any task by scanning the project's agent/skill inventory, creating a team, and coordinating work. You are the coordinator — never implement directly."
-version: "1.1.0"
+version: 2.0.0
+description: "Multi-agent task delegation and coordination"
+requires: []
 triggers:
   - delegate
 ---
@@ -48,6 +48,7 @@ Break the user's request into independent work units. For each unit, identify:
 2. **Which agent is best suited** — match work type to agent descriptions
 3. **Dependencies** — which units must complete before others can start
 4. **Cross-model routing** — should this go to Codex instead? (see routing rules below)
+5. **Isolation needs** — can this run in a worktree for parallel safety?
 
 ### Step 3: Create the Team
 
@@ -74,7 +75,13 @@ Agent(
 )
 ```
 
-**Parallel dispatch:** Launch all independent agents simultaneously. Only hold back agents that depend on other agents' output.
+**Parallel dispatch:** Launch all independent agents simultaneously in a single message with multiple `Agent` calls. Only hold back agents that depend on other agents' output.
+
+**Worktree isolation:** Each spawned agent runs in its own git worktree by default, enabling safe parallel execution without file conflicts. This means:
+- Multiple agents can edit different files simultaneously without merge conflicts
+- Each agent has a clean working directory isolated from others
+- Changes are merged back when the agent completes
+- No need to serialize agents that touch different parts of the codebase
 
 **Context injection:** Each agent prompt MUST include:
 - The specific task description
@@ -89,7 +96,7 @@ As agents complete work:
 2. Unblock dependent tasks
 3. Assign newly unblocked work to idle agents
 4. If an agent's work needs revision, send feedback via SendMessage
-5. When cross-model review is needed, invoke the appropriate codex-* agent
+5. When cross-model review is needed, invoke the appropriate codex-* agent via MCP
 
 ### Step 7: Report to User
 
@@ -102,18 +109,22 @@ When all tasks are complete:
 
 ## Cross-Model Routing Rules
 
-Some work should be delegated to Codex (GPT-5.4) via the codex-* agents:
+Routing is configured in `config.json` under `providers` and `routing`. Each provider has an MCP server, model ID, and role. The current default routes adversarial review to Codex (GPT-5.4), but the system supports adding new providers (Gemini, Deepseek, etc.) by adding entries to `config.json`.
 
-| Work Type | Route To | Why |
-|-----------|----------|-----|
-| Review of Claude's own plan/code | `codex-reviewer` | Unbiased cross-model review |
-| Security-sensitive code | `codex-security` | Independent threat model |
-| Architecture decisions | `codex-architect` | Different pattern preferences |
-| QA/test strategy | `codex-qa` | No confirmation bias |
-| Devil's advocate | `codex-devils-advocate` | Genuine adversarial pushback |
-| Gap analysis | `codex-gap-analyst` | Fresh eyes |
+**Current routing (from config.json):**
 
-**Never route to Codex:**
+| Work Type | Route To | Provider Role |
+|-----------|----------|---------------|
+| Review of Claude's own plan/code | `codex-reviewer` | `adversarial_reviewer` |
+| Security-sensitive code | `codex-security` | `adversarial_reviewer` |
+| Architecture decisions | `codex-architect` | `adversarial_reviewer` |
+| QA/test strategy | `codex-qa` | `adversarial_reviewer` |
+| Devil's advocate | `codex-devils-advocate` | `adversarial_reviewer` |
+| Gap analysis | `codex-gap-analyst` | `adversarial_reviewer` |
+
+**Adding a new provider:** Add it to `config.json` under `providers`, set its `role`, configure its `mcp_server`, then add corresponding agents. The routing table above automatically extends to any provider with the `adversarial_reviewer` role.
+
+**Never route to cross-model:**
 - Frontend design (Claude is better)
 - Marketing copy (Claude is better)
 - Simple CRUD or config work
@@ -142,6 +153,23 @@ When multiple agents could handle a task, prefer in this order:
 
 ---
 
+## Concurrency Limits
+
+Cross-model calls have concurrency limits defined in `config.json`:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `concurrency.max_parallel_claude` | 2 | Max simultaneous Claude agents calling Codex MCP |
+| `concurrency.max_parallel_codex` | 3 | Max simultaneous Codex agents calling Claude MCP |
+
+**When dispatching agents:**
+- Do not spawn more cross-model agents than the limit allows simultaneously
+- If you need more agents than the limit, batch them: launch the first batch, wait for completion, then launch the next
+- Same-model agents (Claude calling Claude) have no cross-model limit — dispatch freely
+- These limits prevent rate limiting and API throttling from the model providers
+
+---
+
 ## Red Flags — STOP
 
 - **NEVER** write code yourself — delegate to an agent
@@ -164,6 +192,6 @@ User: "Build a toast notification component for the trading dashboard"
    - QA → qa-engineer
 3. **Create team:** `toast-component-team`
 4. **Dispatch:** design-systems-architect first (others depend on design)
-5. **After design:** Launch frontend-engineer + codex-frontend in parallel
+5. **After design:** Launch frontend-engineer + codex-frontend in parallel (worktree isolation keeps them safe)
 6. **After impl:** Launch qa-engineer
 7. **Report** results to user

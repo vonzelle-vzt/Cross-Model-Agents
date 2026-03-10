@@ -1,0 +1,59 @@
+{
+  "providers": {
+    "codex": {
+      "name": "Codex (OpenAI)",
+      "model": "gpt-5.4",
+      "fast_model": "gpt-5.3-codex-spark",
+      "reasoning_effort": "xhigh",
+      "mcp_server": "codex",
+      "mcp_tool": "mcp__codex__codex",
+      "default_sandbox": "read-only",
+      "role": "adversarial_reviewer"
+    },
+    "claude": {
+      "name": "Claude (Anthropic)",
+      "model": "opus",
+      "reasoning_effort": "xhigh",
+      "mcp_server": "claude_code",
+      "mcp_tool": "mcp__claude-code-mcp__claude_code",
+      "role": "primary_implementer"
+    }
+  },
+  "routing": {
+    "implementation": "claude",
+    "adversarial_review": "codex",
+    "security_review": "codex",
+    "council_participants": ["claude", "codex"],
+    "note": "To add a new provider (e.g. Gemini), add it to providers{} and reference it in routing"
+  },
+  "scoring": {
+    "pass_threshold": 7,
+    "max_rounds": 3,
+    "critical_weight": 3,
+    "moderate_weight": 1,
+    "minor_weight": 0.5
+  },
+  "concurrency": {
+    "max_parallel_claude": 2,
+    "max_parallel_codex": 3
+  },
+  "mcp_servers": {
+    "codex": {
+      "name": "codex",
+      "command": "npx",
+      "args": ["-y", "codex-mcp-server"],
+      "description": "Wraps Codex CLI as MCP server for cross-model calls"
+    },
+    "claude_code": {
+      "name": "claude-code-mcp",
+      "command": "npx",
+      "args": ["-y", "@anthropic-ai/claude-code-mcp@latest"],
+      "description": "Wraps Claude Code as MCP server for cross-model calls"
+    }
+  },
+  "github": {
+    "status_context_prefix": "pipeline/",
+    "publish_url": "https://github.com",
+    "note": "Used by `pipeline.js publish` to post gate results as GitHub commit statuses"
+  }
+}

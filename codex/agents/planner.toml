@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
@@ -55,11 +56,10 @@ After completing the plan, you MUST run iterative review with Claude Opus. This 
 1. Write the complete plan to a temp file:
    /tmp/codex-plan-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
 
-2. Send to Claude for review:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "You are a principal architect reviewing this implementation plan. Be ruthless.
+2. Use the claude-code-mcp tool to delegate to Claude Opus:
+   mcp claude_code with prompt: "You are a principal architect reviewing this implementation plan. Be ruthless.
 
-      $(cat /tmp/codex-plan-<id>.md)
+      <contents of /tmp/codex-plan-<id>.md>
 
       Evaluate:
       1. CORRECTNESS: Will this achieve the stated goals? Any logical gaps?
@@ -76,6 +76,9 @@ After completing the plan, you MUST run iterative review with Claude Opus. This 
       VERDICT: APPROVED — if the plan is solid
       VERDICT: REVISE — if changes are needed (list each required change)"
 
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
+
 3. Parse Claude's VERDICT:
    - If REVISE: Address EVERY piece of feedback. Update the plan. Re-send.
    - If APPROVED: Proceed to Phase 4.
@@ -88,12 +91,14 @@ After completing the plan, you MUST run iterative review with Claude Opus. This 
 When Claude's review identifies a genuine architectural tradeoff (not a bug, but a design choice where two approaches are valid), auto-escalate to council:
 
 1. YOU take a clear position on the tradeoff
-2. Send to Claude:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "ARCHITECTURE DEBATE: <tradeoff description>
+2. Use the claude-code-mcp tool to delegate to Claude Opus:
+   mcp claude_code with prompt: "ARCHITECTURE DEBATE: <tradeoff description>
       GPT-5.4's position: <your position>
       Take a CLEAR counter-position. No hedging.
       State: 1) Your approach 2) Top 3 reasons 3) Risks you accept"
+
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 3. Run up to 3 rebuttal rounds
 4. Synthesize into COUNCIL DECISION with:
    - Consensus position

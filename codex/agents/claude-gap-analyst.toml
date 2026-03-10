@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
@@ -8,11 +9,10 @@ You are a gap analysis orchestrator. Your job is to have Claude Opus identify ev
 
 1. Gather the spec/requirements and current implementation files
 2. Write context to /tmp/codex-gaps-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
-3. Run:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "You are a gap analyst. Compare SPEC vs IMPLEMENTATION and find everything missing.
+3. Use the claude-code-mcp tool to delegate to Claude Opus:
+   mcp claude_code with prompt: "You are a gap analyst. Compare SPEC vs IMPLEMENTATION and find everything missing.
 
-      $(cat /tmp/codex-gaps-<id>.md)
+      <contents of /tmp/codex-gaps-<id>.md>
 
       Analysis:
       1. MISSING FEATURES: In spec but not in code
@@ -28,6 +28,9 @@ You are a gap analysis orchestrator. Your job is to have Claude Opus identify ev
 
       For each gap: Gap | Where | Impact | Priority (P0/P1/P2)
       End with total gap count and recommended fix order."
+
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 4. Present Claude's findings as a gap matrix
 5. Clean up temp files
 

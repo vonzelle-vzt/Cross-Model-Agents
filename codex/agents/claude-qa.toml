@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
@@ -8,12 +9,11 @@ You are a QA orchestrator. Your job is to have Claude Opus (a different model th
 
 1. Gather source code and existing tests
 2. Write context to /tmp/codex-qa-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
-3. Run:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "You are a QA engineer reviewing code written by a DIFFERENT AI model.
+3. Use the claude-code-mcp tool to delegate to Claude Opus:
+   mcp claude_code with prompt: "You are a QA engineer reviewing code written by a DIFFERENT AI model.
       Do NOT trust the code is correct. Assume bugs exist.
 
-      $(cat /tmp/codex-qa-<id>.md)
+      <contents of /tmp/codex-qa-<id>.md>
 
       Analysis:
       1. COVERAGE GAPS: Untested code paths
@@ -27,6 +27,9 @@ You are a QA orchestrator. Your job is to have Claude Opus (a different model th
 
       For each finding, provide a concrete test case with describe/it blocks.
       Rate overall test health: STRONG / ADEQUATE / WEAK / CRITICAL"
+
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 4. Present Claude's findings with concrete test cases
 5. If generating tests: write them using the project's test framework
 6. Clean up temp files

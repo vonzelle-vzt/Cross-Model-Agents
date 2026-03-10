@@ -11,6 +11,8 @@
 [![Codex CLI](https://img.shields.io/badge/Codex_CLI-GPT--5.4-green)](https://github.com/openai/codex)
 [![Agents](https://img.shields.io/badge/Agents-31-orange)]()
 [![Skills](https://img.shields.io/badge/Skills-3-yellow)]()
+[![Tests](https://img.shields.io/badge/Tests-222_passing-brightgreen)]()
+[![Version](https://img.shields.io/badge/Version-2.0.0-blue)]()
 
 ---
 
@@ -21,9 +23,10 @@ Copy-paste this entire block into Claude Code, Codex, Cursor, Windsurf, or any A
 > **Clone and install the cross-model adversarial review system. This gives you bidirectional code review between Claude (Opus) and Codex (GPT-5.4) — each model acts as the other's devil's advocate.**
 >
 > ```bash
-> git clone https://github.com/Dallionking/cross-model-agents.git
-> cd cross-model-agents
-> ./scripts/install.sh
+> git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
+> cd Cross-Model-Agents
+> ./scripts/install.sh          # macOS/Linux
+> node scripts/install.js       # Windows or cross-platform
 > ```
 >
 > **After install, restart your CLI. Then test with:**
@@ -31,9 +34,9 @@ Copy-paste this entire block into Claude Code, Codex, Cursor, Windsurf, or any A
 > - In Codex: `@claude-reviewer Review my implementation`
 > - In Claude Code: `/council Should we use X or Y?`
 >
-> **What you get:** 10 Claude Code agents, 3 skills, 21 Codex agents, pipeline enforcement (commit gates, post-edit reminders, session checks), anti-slop scoring, UI validation, multi-model council debates. All agents degrade gracefully without optional MCP servers.
+> **What you get:** 10 Claude Code agents, 3 skills, 21 Codex agents, pipeline enforcement (commit gates, post-edit reminders, session checks), anti-slop scoring, UI validation, multi-model council debates, observability dashboard. All cross-model calls use MCP servers with CLI fallback.
 >
-> **Read the full docs:** https://github.com/Dallionking/cross-model-agents
+> **Read the full docs:** https://github.com/vonzelle-vzt/Cross-Model-Agents
 
 ---
 
@@ -69,8 +72,8 @@ This project provides the complete agent and skill infrastructure to make cross-
                     CLAUDE CODE (Opus)                                    CODEX CLI (GPT-5.4)
                     ==================                                    ===================
 
-        Agents (delegate TO Codex)                            Agents (delegate TO Claude)
-        ~~~~~~~~~~~~~~~~~~~~~~~~~~                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        Agents (delegate TO Codex via MCP)                    Agents (delegate TO Claude via MCP)
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         codex-reviewer         -------- review -------->      claude-reviewer
         codex-devils-advocate  ---- challenge --------->      claude-devils-advocate
         codex-architect        --- architecture ------->      claude-architect
@@ -85,13 +88,24 @@ This project provides the complete agent and skill infrastructure to make cross-
         Skills                                                Orchestration Agents
         ~~~~~~                                                ~~~~~~~~~~~~~~~~~~~~
         /codex-review   (iterative review loop)               planner    (auto-sends to Claude review)
-        /council        (multi-model debate)                  executor   (implementation + anti-slop)
+        /council        (Agent Teams parallel debate)         executor   (implementation + anti-slop)
         /delegate       (coordinator-only mode)               reviewer   (strict review)
                                                               council    (multi-model debate)
                                                               default    (general + anti-slop)
                                                               backend    (backend + anti-slop)
                                                               frontend   (frontend + anti-slop)
 ```
+
+### Communication Layer
+
+All cross-model calls use **MCP (Model Context Protocol) servers** as the primary communication channel, with CLI fallback when MCP is unavailable:
+
+| Direction | Primary (MCP) | Fallback (CLI) |
+|-----------|--------------|----------------|
+| Claude --> Codex | `mcp__codex__codex(prompt, model, sandbox)` | `codex exec -m gpt-5.4 ...` |
+| Codex --> Claude | `mcp claude_code` via claude-code-mcp | `env -u CLAUDECODE claude -p --model opus ...` |
+
+MCP servers eliminate ~15s cold-start overhead, enable structured JSON responses, and remove the need for `--dangerously-skip-permissions`.
 
 ### The Full Pipeline
 
@@ -128,6 +142,9 @@ Every implementation follows this mandatory pipeline. No exceptions.
   Commit (only after ALL gates pass)
      |
      v
+  GitHub Commit Status (auto-published via pipeline)
+     |
+     v
   Pull Request --> Greptile Score Loop ------------------------- BLOCKER
      |
      v
@@ -144,7 +161,25 @@ The pipeline is **enforced**, not advisory. Three mechanisms prevent ungated cod
 | **Commit gate** | Claude Code PreToolUse hook + git pre-commit hook | **Blocks `git commit`** if required gates haven't passed |
 | **Session check** | Claude Code Stop hook | Warns when ending a session with incomplete gates |
 
-**Checkpoint system:** Pipeline state is tracked in `/tmp/pipeline-state-{repo}-{branch}.json`. Each gate agent records its result via `pipeline-gate.sh`. The commit gate reads this file to decide whether to allow or block.
+**Checkpoint system:** Pipeline state is tracked in `.pipeline/state-{branch}.json` at the project root (gitignored). Each gate agent records its result via `node pipeline.js gate`. The commit gate reads this file to decide whether to allow or block.
+
+**Pipeline CLI:** The pipeline is managed via a single cross-platform Node.js script:
+
+```bash
+node pipeline.js init                                    # Initialize checkpoint
+node pipeline.js gate <name> <status> [score] [round]   # Record gate result
+node pipeline.js check                                   # Verify all gates passed
+node pipeline.js reset [--all]                           # Clear pipeline state
+node pipeline.js track <file>                            # Track a changed file
+node pipeline.js report                                  # Show gate status summary
+node pipeline.js log [--last N] [--gate X] [--event Y]  # Query pipeline logs
+node pipeline.js publish                                 # Post results as GitHub commit statuses
+node pipeline.js fetch                                   # Pull GitHub statuses into local state
+```
+
+**Structured logging:** All pipeline events are logged to `.pipeline/logs/{date}.jsonl` in structured JSON format. Use `pipeline.js log` to query.
+
+**GitHub integration:** Gate results can be published as GitHub commit statuses via `pipeline.js publish`, making them visible in PRs. Use `pipeline.js fetch` to sync remote statuses back to local state.
 
 **Emergency override:** `SKIP_PIPELINE_CHECK=1 git commit -m "message"` bypasses the gate (use sparingly).
 
@@ -158,34 +193,65 @@ PostToolUse hook tracks files + reminds about gates
 Run gate agents (anti-slop, devil's advocate, gap analysis, UI validation)
    |
    v
-Each agent records result via pipeline-gate.sh
+Each agent records result via: node pipeline.js gate <name> <status> [score]
    |
    v
 commit_allowed = true when all gates pass
    |
    v
-git commit unblocked
+git commit unblocked --> pipeline.js publish (optional)
 ```
+
+### Gate Output Format
+
+All gate agents produce **structured JSON output** for deterministic pipeline parsing:
+
+```json
+{
+  "verdict": "PASS",
+  "overall_score": 8.5,
+  "round": 1,
+  "files": [
+    {
+      "path": "src/auth.ts",
+      "score": 8.5,
+      "violations": [
+        {
+          "line": 42,
+          "pattern": 3,
+          "pattern_name": "Comment-Restates-Code",
+          "severity": "minor",
+          "description": "Comment restates what the code does",
+          "fix": "Remove comment or explain WHY"
+        }
+      ]
+    }
+  ]
+}
+```
+
+This JSON block appears in a fenced code block in every gate agent response, enabling automated result parsing without regex.
 
 ### The Anti-Slop Gate (Bidirectional)
 
-The anti-slop gate is the core innovation. It works in both directions:
+The anti-slop gate is the core innovation. It works in both directions via MCP:
 
 ```
   Claude writes code                        Codex writes code
         |                                         |
         v                                         v
-  Send to Codex for scoring              Send to Claude for scoring
+  Send to Codex via MCP                    Send to Claude via MCP
+  mcp__codex__codex(prompt)                mcp claude_code(prompt)
         |                                         |
         v                                         v
-  codex exec -m gpt-5.4                   claude -p --model opus
-  "Score this for AI slop"               "Score this for AI slop"
+  GPT-5.4 scores for AI slop              Opus scores for AI slop
         |                                         |
         v                                         v
-  VERDICT: PASS (>= 7) or FAIL          VERDICT: PASS (>= 7) or FAIL
+  Structured JSON with verdict             Structured JSON with verdict
+  PASS (>= 7) or FAIL (< 7)               PASS (>= 7) or FAIL (< 7)
         |                                         |
         v                                         v
-  If FAIL: fix + rescore (max 3x)        If FAIL: fix + rescore (max 3x)
+  If FAIL: fix + rescore (max 3x)          If FAIL: fix + rescore (max 3x)
 ```
 
 ---
@@ -194,11 +260,11 @@ The anti-slop gate is the core innovation. It works in both directions:
 
 ### Claude Code Agents (delegate to Codex)
 
-These are Markdown files installed to `~/.claude/agents/`. When invoked inside Claude Code, they shell out to `codex exec` to get GPT-5.4's perspective.
+These are Markdown files (v2.0.0) installed to `~/.claude/agents/`. When invoked inside Claude Code, they call Codex via the `codex-mcp-server` MCP tool.
 
 | Agent | File | Mode | Purpose |
 |-------|------|------|---------|
-| `codex-reviewer` | `codex-reviewer.md` | read-only | Adversarial code/plan review. Groups findings by CRITICAL/WARNING/NIT. Supports multi-turn deep dives via `codex --resume`. |
+| `codex-reviewer` | `codex-reviewer.md` | read-only | Adversarial code/plan review. Groups findings by CRITICAL/WARNING/NIT. |
 | `codex-devils-advocate` | `codex-devils-advocate.md` | read-only | Relentless adversarial challenger. Finds FATAL FLAWS, BLIND SPOTS, WEAK ASSUMPTIONS, and ALTERNATIVES. |
 | `codex-architect` | `codex-architect.md` | read-only | Cross-model architecture review. Evaluates structural integrity, scaling bottlenecks, data architecture, API design, and dependency risks. Scores architecture 1-10. |
 | `codex-frontend` | `codex-frontend.md` | read-only or write | Frontend specialist with anti-slop design principles. Reviews or implements components with GPT-5.4's design perspective. |
@@ -211,21 +277,21 @@ These are Markdown files installed to `~/.claude/agents/`. When invoked inside C
 
 ### Codex Agents (delegate to Claude)
 
-These are TOML files installed to `~/.codex/agents/`. When invoked inside Codex CLI, they shell out to `claude -p --model opus` to get Opus's perspective.
+These are TOML files (v2.0.0) installed to `~/.codex/agents/`. When invoked inside Codex CLI, they call Claude via the `claude-code-mcp` MCP tool.
 
 | Agent | File | Mode | Purpose |
 |-------|------|------|---------|
-| `claude-reviewer` | `claude-reviewer.toml` | read-only | Adversarial review via Opus. Iterative loop with VERDICT: APPROVED/REVISE. Pre-gathers context via Auggie + GitNexus. |
+| `claude-reviewer` | `claude-reviewer.toml` | read-only | Adversarial review via Opus. Iterative loop with VERDICT: APPROVED/REVISE. |
 | `claude-devils-advocate` | `claude-devils-advocate.toml` | read-only | Ruthless adversarial challenge via Opus. Groups as FATAL FLAWS / BLIND SPOTS / WEAK ASSUMPTIONS / ALTERNATIVES. |
-| `claude-architect` | `claude-architect.toml` | read-only | Architecture assessment via Opus. Always escalates to council on disagreements -- architecture is where cross-model debate adds the most value. |
-| `claude-frontend` | `claude-frontend.toml` | write | Frontend implementation/review via Opus with anti-slop design philosophy. Enforces no generic templates, accessible by default. |
-| `claude-frontend-design` | `claude-frontend-design.toml` | write | **Full design + implementation via Opus.** Superior visual hierarchy, spacing, typography, animation decisions. Includes anti-slop principles and design system enforcement. |
-| `claude-marketing` | `claude-marketing.toml` | write | **Marketing copy and content via Opus.** Landing pages, email sequences, ad copy, content strategy. More natural, human-sounding, persuasive writing. |
+| `claude-architect` | `claude-architect.toml` | read-only | Architecture assessment via Opus. Always escalates to council on disagreements. |
+| `claude-frontend` | `claude-frontend.toml` | write | Frontend implementation/review via Opus with anti-slop design philosophy. |
+| `claude-frontend-design` | `claude-frontend-design.toml` | write | **Full design + implementation via Opus.** Superior visual hierarchy, spacing, typography, animation decisions. |
+| `claude-marketing` | `claude-marketing.toml` | write | **Marketing copy and content via Opus.** Landing pages, email sequences, ad copy, content strategy. |
 | `claude-gap-analyst` | `claude-gap-analyst.toml` | read-only | Gap analysis via Opus across 10 dimensions. Returns a gap matrix with priority and impact. |
-| `claude-qa` | `claude-qa.toml` | read-only | QA assessment via Opus. Reviews code written by GPT-5.4 with zero trust -- assumes bugs exist until proven otherwise. |
-| `claude-security` | `claude-security.toml` | read-only | Security audit via Opus. OWASP Top 10 + additional checks. White-box audit with attack vectors and CWE IDs. |
+| `claude-qa` | `claude-qa.toml` | read-only | QA assessment via Opus. Reviews GPT-5.4 code with zero trust. |
+| `claude-security` | `claude-security.toml` | read-only | Security audit via Opus. OWASP Top 10 + additional checks with CWE IDs. |
 | `anti-slop` | `anti-slop.toml` | read-only | **BLOCKER gate (Codex side).** Sends Codex's code to Claude for cross-model slop scoring. Same formula, same threshold. |
-| `ui-validator` | `ui-validator.toml` | read-only | **BLOCKER gate (Codex side).** Auto-triggers on frontend files. Sends Codex's UI code to Claude for cross-model UI validation + browser testing. |
+| `ui-validator` | `ui-validator.toml` | read-only | **BLOCKER gate (Codex side).** Auto-triggers on frontend files. Sends Codex's UI code to Claude for UI validation + browser testing. |
 
 ### Codex Orchestration Agents
 
@@ -233,13 +299,13 @@ These Codex agents handle workflow orchestration with built-in cross-model revie
 
 | Agent | File | Mode | Purpose |
 |-------|------|------|---------|
-| `planner` | `planner.toml` | read-only | Planning with mandatory Claude review. Every plan goes through iterative cross-model review (max 5 rounds). Auto-escalates architecture tradeoffs to council. |
-| `executor` | `executor.toml` | write | Implementation with anti-slop discipline. Code goes through anti-slop gate, devil's advocate, and gap analysis post-implementation. |
+| `planner` | `planner.toml` | read-only | Planning with mandatory Claude review. Every plan goes through iterative cross-model review (max 5 rounds). |
+| `executor` | `executor.toml` | write | Implementation with anti-slop discipline. Code goes through anti-slop gate, devil's advocate, and gap analysis. |
 | `reviewer` | `reviewer.toml` | read-only | Strict review agent. Findings ordered by severity with file/line references. |
-| `council` | `council.toml` | read-only | Multi-model deliberation. Facilitates structured debate between GPT-5.4 and Opus with rebuttal rounds and synthesis. |
+| `council` | `council.toml` | read-only | Multi-model deliberation. Facilitates structured debate between GPT-5.4 and Opus with rebuttal rounds. |
 | `default` | `default.toml` | write | General-purpose with anti-slop discipline baked in. |
-| `backend` | `backend.toml` | write | Backend specialist with anti-slop discipline. Favors correctness, explicit contracts, and failure-mode handling. |
-| `frontend` | `frontend.toml` | write | Frontend specialist with anti-slop discipline. Enforces accessibility, responsive behavior, and visual correctness. Uses shadcn/ui MCP for component reference. |
+| `backend` | `backend.toml` | write | Backend specialist with anti-slop discipline. |
+| `frontend` | `frontend.toml` | write | Frontend specialist with anti-slop discipline. Uses shadcn/ui MCP for component reference. |
 
 ---
 
@@ -255,11 +321,11 @@ Send the current plan or implementation to Codex for adversarial review. Runs an
 /codex-review o4-mini    # optional model override
 ```
 
-**Flow:** Capture plan --> Submit to Codex --> Parse VERDICT --> If REVISE: revise + resubmit --> Repeat until APPROVED or 5 rounds
+**Flow:** Capture plan --> Submit to Codex via MCP --> Parse VERDICT --> If REVISE: revise + resubmit --> Repeat until APPROVED or 5 rounds
 
-### `/council` -- Multi-Model Deliberation
+### `/council` -- Multi-Model Deliberation (Agent Teams)
 
-Structured debate between Claude Opus and GPT-5.4. Both models take positions, argue through rebuttal rounds, and synthesize a consensus (or identify irreconcilable tradeoffs).
+Structured parallel debate between Claude Opus and GPT-5.4 using Agent Teams. Both models formulate positions simultaneously, argue through rebuttal rounds, and synthesize a consensus (or identify irreconcilable tradeoffs).
 
 ```
 # Invoke in Claude Code
@@ -267,30 +333,42 @@ Structured debate between Claude Opus and GPT-5.4. Both models take positions, a
 /council Is server-side rendering worth the complexity for this app?
 ```
 
-**Flow:**
-1. Frame the question
-2. Both models take clear positions (no hedging)
-3. Up to 3 rebuttal rounds (each model must concede where the other is right)
-4. Synthesis with validation
-5. Council Decision: consensus, agreements, disagreements, confidence level
+**Flow (Agent Teams):**
+1. **Create team** via `TeamCreate` named `council-{topic}`
+2. **Parallel position phase** -- two Agent subagents launched simultaneously:
+   - Claude advocate formulates Claude's position directly
+   - Codex advocate retrieves GPT-5.4's position via `mcp__codex__codex()`
+3. **Rebuttal rounds** (up to 3) -- each model must concede where the other is right and counter-argue where the other is wrong
+4. **Synthesis** with validation
+5. **Council Decision:** FULL CONSENSUS / PARTIAL CONSENSUS / DEADLOCK with confidence level
 
 **Output includes:** Concession counts, resolved debates, remaining tradeoffs, and the key insight that emerged from debate (the thing neither model would have found alone).
 
 ### `/delegate` -- Team Coordinator Mode
 
-Scan the agent/skill inventory, create a team, and delegate all work. You become the coordinator -- never implementing directly.
+Scan the agent/skill inventory, create a team, and delegate all work. You become the coordinator -- never implementing directly. Each agent runs in its own git worktree for safe parallel execution.
 
 ```
 # Invoke in Claude Code
 /delegate
 ```
 
-**Flow:** Scan inventory --> Break task into work units --> Create team --> Spawn agents in parallel --> Coordinate --> Report
+**Flow:** Scan inventory --> Break task into work units --> Create team via `TeamCreate` --> Spawn agents in parallel via `Agent` tool (worktree isolated) --> Coordinate --> Report
 
-**Cross-model routing rules:**
-- Reviews, security, QA, gap analysis --> always cross-model
-- Frontend design, marketing copy --> always Claude (domain strength)
-- Simple CRUD, bug fixes --> no cross-model needed
+**Cross-model routing** is configured in `config.json` under `providers` and `routing`. Each provider has an MCP server, model ID, and role:
+
+| Work Type | Route To | Why |
+|-----------|----------|-----|
+| Reviews, security, QA, gap analysis | Cross-model (Codex) | Different model = unbiased review |
+| Frontend design, marketing copy | Claude (Opus) | Domain strength |
+| Simple CRUD, bug fixes | Same model | No cross-model needed |
+
+**Concurrency limits** (from `config.json`):
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `concurrency.max_parallel_claude` | 2 | Max simultaneous Claude agents calling Codex MCP |
+| `concurrency.max_parallel_codex` | 3 | Max simultaneous Codex agents calling Claude MCP |
 
 ---
 
@@ -339,9 +417,9 @@ When frontend files are changed (`.tsx`, `.jsx`, `.css`, `.vue`, `.svelte`), the
 ### Two-Phase Validation
 
 ```
-Phase 1: Cross-Model Code Review
-   Claude code --> Codex scores UI quality
-   Codex code --> Claude scores UI quality
+Phase 1: Cross-Model Code Review (via MCP)
+   Claude code --> Codex scores UI quality via mcp__codex__codex()
+   Codex code --> Claude scores UI quality via mcp claude_code
 
 Phase 2: Browser Validation (agent-browser CLI)
    Desktop viewport (1920x1080) --> screenshot + console check
@@ -368,8 +446,8 @@ Phase 2: Browser Validation (agent-browser CLI)
 
 | Agent | Side | Purpose |
 |-------|------|---------|
-| `ui-validator` | Codex (sends to Claude) | Validates Codex's frontend work via Opus |
-| `codex-ui-validator` | Claude Code (sends to Codex) | Validates Claude's frontend work via GPT-5.4 |
+| `ui-validator` | Codex (sends to Claude via MCP) | Validates Codex's frontend work via Opus |
+| `codex-ui-validator` | Claude Code (sends to Codex via MCP) | Validates Claude's frontend work via GPT-5.4 |
 
 ---
 
@@ -389,9 +467,96 @@ The routing is asymmetric by design. Each model has genuine strengths the other 
 
 ### Routing Rules
 
+Routing is configured in `config.json` under `providers` and `routing`. The system is provider-agnostic -- adding a new model (e.g., Gemini, Deepseek) requires only adding an entry to `providers{}` and referencing it in `routing`.
+
 - **Both models** auto-delegate reviews, security, QA, and gap analysis (cross-model = unbiased)
 - **Only Codex** auto-delegates design and marketing to Opus (domain strength)
 - **Neither model** delegates simple CRUD, bug fixes, or explicitly assigned tasks
+
+---
+
+## Configuration
+
+### config.json (Project Root)
+
+The central configuration file manages providers, routing, scoring, concurrency, and MCP servers. It is **provider-agnostic** -- adding a new AI model is one config change.
+
+```json
+{
+  "providers": {
+    "codex": {
+      "name": "Codex (OpenAI)",
+      "model": "gpt-5.4",
+      "fast_model": "gpt-5.3-codex-spark",
+      "reasoning_effort": "xhigh",
+      "mcp_server": "codex",
+      "mcp_tool": "mcp__codex__codex",
+      "default_sandbox": "read-only",
+      "role": "adversarial_reviewer"
+    },
+    "claude": {
+      "name": "Claude (Anthropic)",
+      "model": "opus",
+      "reasoning_effort": "xhigh",
+      "mcp_server": "claude_code",
+      "mcp_tool": "mcp__claude-code-mcp__claude_code",
+      "role": "primary_implementer"
+    }
+  },
+  "routing": {
+    "implementation": "claude",
+    "adversarial_review": "codex",
+    "security_review": "codex",
+    "council_participants": ["claude", "codex"]
+  },
+  "scoring": {
+    "pass_threshold": 7,
+    "max_rounds": 3,
+    "critical_weight": 3,
+    "moderate_weight": 1,
+    "minor_weight": 0.5
+  },
+  "concurrency": {
+    "max_parallel_claude": 2,
+    "max_parallel_codex": 3
+  }
+}
+```
+
+**Adding a new provider:** Add it to `providers{}` with its `model`, `mcp_server`, `mcp_tool`, and `role`, then reference it in `routing`. All agents that use cross-model calls will automatically pick up the new provider.
+
+### Config Files Reference
+
+| File | Location | Purpose |
+|------|----------|---------|
+| `config.json` | Project root | Provider registry, routing, scoring, concurrency, MCP servers |
+| Agent definitions (Claude) | `~/.claude/agents/*.md` | Markdown files with YAML frontmatter (version, description) |
+| Skill definitions (Claude) | `~/.claude/skills/*/SKILL.md` | Skill files triggered by `/command` syntax |
+| Agent definitions (Codex) | `~/.codex/agents/*.toml` | TOML files with version, model, sandbox_mode, developer_instructions |
+| Codex config | `~/.codex/config.toml` | Global Codex settings (model, reasoning effort, etc.) |
+| Claude config | `~/.claude/settings.json` | Claude Code settings, hooks, MCP servers |
+| Pipeline checkpoint | `.pipeline/state-{branch}.json` | Tracks which gates have passed (gitignored) |
+| Pipeline logs | `.pipeline/logs/{date}.jsonl` | Structured event logs (gitignored) |
+| Pipeline CLI | `scripts/pipeline.js` | Node.js pipeline enforcement (cross-platform) |
+| Git hooks | `~/.githooks/pre-commit` | Blocks commits without completed gates |
+| Auto-routing rules | Your `CLAUDE.md` and `instructions.md` | Project or global instructions that trigger auto-delegation |
+
+### Agent Versioning
+
+All agents include version numbers for change tracking:
+
+- **Claude Code agents (.md):** YAML frontmatter with `version`, `description`, and `requires` fields
+- **Codex agents (.toml):** `version = "2.0.0"` field
+- CI validates semver compliance across all agent files
+
+### Auto-Routing Configuration
+
+To enable automatic cross-model delegation (agents trigger without manual invocation), add routing rules to your global config files. See [docs/auto-routing.md](docs/auto-routing.md) for the complete configuration.
+
+**Key sections to add:**
+- `~/.claude/CLAUDE.md` -- Cross-Model Auto-Delegation table
+- `~/.codex/instructions.md` -- Mandatory delegation rules for design/marketing
+- Both files -- Auto-Delegate Plan Mode (coordinator-only)
 
 ---
 
@@ -408,23 +573,33 @@ You need active subscriptions to both AI coding tools:
 
 Both CLIs must be installed, authenticated, and working before proceeding.
 
-### Quick Install (Recommended)
+### Quick Install
 
+**macOS / Linux:**
 ```bash
-git clone https://github.com/Dallionking/cross-model-agents.git
-cd cross-model-agents
+git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
+cd Cross-Model-Agents
 ./scripts/install.sh
 ```
 
-The installer is **interactive** and walks you through 5 phases:
+**Windows / Cross-Platform (Node.js):**
+```bash
+git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
+cd Cross-Model-Agents
+node scripts/install.js
+```
+
+Both installers are **interactive** and walk you through 5 phases:
 
 1. **Prerequisites** -- checks that Claude Code and/or Codex CLI are installed and authenticated
 2. **Core agents** -- symlinks agent files to `~/.claude/agents/` and `~/.codex/agents/` (with backup of existing agents). Use `--copy` flag for portable copies instead of symlinks.
-3. **Pipeline enforcement** -- installs pipeline checkpoint scripts to `~/.local/bin/` and a git pre-commit hook to `~/.githooks/`
+3. **Pipeline enforcement** -- installs pipeline checkpoint scripts and a git pre-commit hook
 4. **Optional CLI tools** -- asks if you want `agent-browser` (for UI validation) and `shadcn/ui` CLI
 5. **Optional MCP servers** -- lists each MCP with a description, asks if you want it, and guides API key setup
 
 No MCPs are installed without your consent. Agents gracefully skip unavailable MCPs.
+
+The Node.js installer (`install.js`) provides full Windows compatibility with automatic symlink fallback (junction for directories, copy on permission errors).
 
 ### What Gets Installed
 
@@ -433,7 +608,7 @@ No MCPs are installed without your consent. Agents gracefully skip unavailable M
 | Claude Code agents | 10 | `~/.claude/agents/` (symlinked) |
 | Claude Code skills | 3 | `~/.claude/skills/` |
 | Codex agents | 21 | `~/.codex/agents/` (symlinked) |
-| Pipeline scripts | 8 | `~/.local/bin/` (symlinked) |
+| Pipeline CLI | 1 | `scripts/pipeline.js` |
 | Git pre-commit hook | 1 | `~/.githooks/pre-commit` |
 
 ### Optional MCP Servers
@@ -442,6 +617,8 @@ These are offered during install. All are optional -- agents work without them.
 
 | MCP | API Key? | Purpose |
 |-----|----------|---------|
+| codex-mcp-server | No | Claude-to-Codex cross-model communication |
+| claude-code-mcp | No | Codex-to-Claude cross-model communication |
 | Auggie (codebase-retrieval) | No | Semantic codebase search |
 | GitNexus | No | Dependency graphs, impact analysis |
 | Ref | No | Framework/library documentation |
@@ -464,14 +641,6 @@ cp -r claude-code/skills/* ~/.claude/skills/
 # Codex agents
 mkdir -p ~/.codex/agents
 for f in codex/agents/*.toml; do ln -sf "$(pwd)/$f" ~/.codex/agents/; done
-
-# Pipeline scripts
-mkdir -p ~/.local/bin
-for f in scripts/pipeline/*.sh; do chmod +x "$f" && ln -sf "$(pwd)/$f" ~/.local/bin/; done
-
-# Or use copies instead of symlinks:
-# cp claude-code/agents/*.md ~/.claude/agents/
-# cp codex/agents/*.toml ~/.codex/agents/
 ```
 
 ### Uninstall
@@ -497,12 +666,12 @@ Restart both Claude Code and Codex CLI for the new agents/skills to take effect.
 /codex-review
 ```
 
-**Multi-model debate** -- Claude and Codex argue to consensus:
+**Multi-model debate** -- Claude and Codex argue to consensus (via Agent Teams):
 ```
 /council Should we use WebSockets or SSE for real-time updates?
 ```
 
-**Delegate everything** -- become coordinator, agents do the work:
+**Delegate everything** -- become coordinator, agents do the work (worktree isolated):
 ```
 /delegate
 ```
@@ -548,143 +717,116 @@ Here is what happens when you ask Codex to build a feature:
 
 ```
 1. @planner drafts the plan
-2. Plan auto-sent to Claude for review (up to 5 rounds)
+2. Plan auto-sent to Claude for review via MCP (up to 5 rounds)
 3. @executor implements the approved plan
-4. @anti-slop sends code to Claude for slop scoring
+4. @anti-slop sends code to Claude via MCP for slop scoring
    --> Score: 6/10 (FAIL) -- "wrapper-for-wrapper in auth.ts"
    --> @executor fixes the violation
    --> @anti-slop re-scores: 8/10 (PASS)
 5. @claude-devils-advocate challenges assumptions
 6. @claude-gap-analyst checks for missing requirements
-7. Commit + PR
-8. Greptile reviews the PR
-9. Merge
+7. Commit + pipeline.js publish (GitHub commit statuses)
+8. Pull Request
+9. Greptile reviews the PR
+10. Merge
 ```
 
 ---
 
-## Configuration
+## Observability Dashboard
 
-### Config Files
+A single-file HTML dashboard for visualizing pipeline activity. Zero dependencies, dark theme, works offline.
 
-| File | Location | Purpose |
-|------|----------|---------|
-| Agent definitions (Claude) | `~/.claude/agents/*.md` | Markdown files defining each agent's role, workflow, and constraints |
-| Skill definitions (Claude) | `~/.claude/skills/*/SKILL.md` | Skill files triggered by `/command` syntax |
-| Agent definitions (Codex) | `~/.codex/agents/*.toml` | TOML files with model, sandbox_mode, and developer_instructions |
-| Codex config | `~/.codex/config.toml` | Global Codex settings (model, reasoning effort, etc.) |
-| Claude config | `~/.claude/settings.json` | Claude Code settings, hooks, MCP servers |
-| Pipeline checkpoint | `/tmp/pipeline-state-{repo}-{branch}.json` | Tracks which gates have passed in the current session |
-| Pipeline scripts | `~/.local/bin/pipeline-*.sh` | Enforcement scripts (symlinked from repo) |
-| Git hooks | `~/.githooks/pre-commit` | Blocks commits without completed gates |
-| Auto-routing rules | Your `CLAUDE.md` and `instructions.md` | Project or global instructions that trigger auto-delegation |
+```bash
+# Open directly in a browser
+open scripts/dashboard.html          # macOS
+start scripts/dashboard.html         # Windows
 
-### Codex Agent TOML Format
-
-Every Codex agent follows this structure:
-
-```toml
-model = "gpt-5.4"
-model_reasoning_effort = "xhigh"
-sandbox_mode = "read-only"  # or "workspace-write"
-developer_instructions = """
-Your agent instructions here.
-"""
+# Or serve it
+npx serve scripts/
 ```
 
-### Claude Code Agent Markdown Format
+**Features:**
+- **Data loading:** Drag-and-drop `.jsonl` log files, paste data, or use file picker
+- **Summary stats:** Pipeline sessions, gate runs, pass rate, blocked commits, common failures
+- **Gate cards:** Per-gate pass/fail rates with mini bar charts (last 10 scores)
+- **Score trends:** SVG line chart per gate with pass threshold line at 7
+- **Event timeline:** Color-coded table of all pipeline events
 
-Claude Code agents are Markdown files with structured sections:
-
-```markdown
-# Agent Name
-
-Role description.
-
-## Workflow
-
-### 1. Gather Context
-### 2. Delegate to Codex
-### 3. Report Findings
-
-## Constraints
-```
-
-### Auto-Routing Configuration
-
-To enable automatic cross-model delegation (agents trigger without manual invocation), add routing rules to your global config files. See [docs/auto-routing.md](docs/auto-routing.md) for the complete configuration.
-
-**Key sections to add:**
-- `~/.claude/CLAUDE.md` -- Cross-Model Auto-Delegation table
-- `~/.codex/instructions.md` -- Mandatory delegation rules for design/marketing
-- Both files -- Auto-Delegate Plan Mode (coordinator-only)
+**Data source:** Feed it `.pipeline/logs/*.jsonl` files generated by the pipeline.
 
 ---
 
-## MCP Requirements
+## Testing
 
-### Required
+### Test Suite
 
-| MCP Server | Purpose | Install |
-|------------|---------|---------|
-| `codex-mcp-server` | Allows Claude Code to invoke Codex CLI as a tool | `claude mcp add codex -- npx -y codex-mcp-server` |
+The project includes three tiers of automated tests:
 
-### Optional (Enhance Agent Capabilities)
+| Tier | Tests | Requires API Key | What It Validates |
+|------|-------|-------------------|-------------------|
+| Static validation | 188 checks | No | TOML schema, MD structure, scoring formula consistency, cross-references, versioning |
+| Pipeline unit tests | 29 tests | No | State init, gate recording, commit logic, file tracking, hook output, reset |
+| Integration smoke tests | 5 checks (dry-run) | Optional | Fixture validity, structured output format, verdict detection |
 
-Agents will use these if available and skip gracefully if not:
+**Run all tests:**
+```bash
+node tests/static/validate-agents.js && node tests/pipeline/test-pipeline.js && node tests/integration/smoke-test.js
+```
 
-| MCP Server | Purpose | Used By |
-|------------|---------|---------|
-| **Auggie** (codebase-retrieval) | Semantic codebase search. Catches cross-file references that grep misses. | planner, reviewer, council, gap-analyst, all Codex agents |
-| **GitNexus** | Dependency graph analysis, impact assessment, cross-file reference tracing. | architect, planner, gap-analyst, all Codex agents |
-| **EXA** | Web research for patterns, trends, CVEs, and real-world failures. | devils-advocate, architect, security, QA |
-| **shadcn/ui** | Component library reference for frontend agents. | frontend, claude-frontend, claude-frontend-design |
-| **Greptile** | Automated PR review and scoring (used in the PR gate). | Post-commit pipeline |
+**Run integration tests with live API calls:**
+```bash
+ANTHROPIC_API_KEY=sk-... node tests/integration/smoke-test.js --live
+```
+
+### CI
+
+GitHub Actions runs static validation and pipeline tests on every push and PR via `.github/workflows/validate.yml`.
 
 ---
 
 ## How It Works Under the Hood
 
-### Claude Code --> Codex
+### Claude Code --> Codex (via MCP)
 
-Claude Code agents delegate to Codex via the CLI:
+Claude Code agents delegate to Codex via the `codex-mcp-server`:
 
+```
+mcp__codex__codex(prompt, model: "gpt-5.4", sandbox: "read-only")
+```
+
+- Structured JSON request/response
+- Warm server eliminates cold-start overhead
+- Proper error handling and timeout support
+
+**CLI fallback** (when MCP is unavailable):
 ```bash
-codex exec \
-  -m gpt-5.4 \
-  -s read-only \
-  --skip-git-repo-check \
-  "<prompt with context>"
+codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
 ```
 
-- `-m gpt-5.4` selects the model
-- `-s read-only` prevents file modifications (use `workspace-write` for implementation agents)
-- `--skip-git-repo-check` is used when not inside a git repo
-- Authentication uses your Codex Pro subscription (no API key needed)
+### Codex --> Claude (via MCP)
 
-### Codex --> Claude
+Codex agents delegate to Claude via the `claude-code-mcp` server:
 
-Codex agents delegate to Claude via the CLI:
+```
+mcp claude_code with prompt: "<prompt>"
+```
 
+**CLI fallback** (when MCP is unavailable):
 ```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "<prompt with context>"
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<prompt>"
 ```
 
-- `env -u CLAUDECODE` -- unsets the env var to prevent nested Claude Code detection
-- `-p` -- pipe mode (non-interactive)
-- `--model opus` -- selects Claude Opus
-- `--dangerously-skip-permissions` -- required for non-interactive execution
-- Authentication uses your Claude MAX subscription (no API key needed)
+### Council Protocol (Agent Teams)
 
-### Council Protocol
-
-The council protocol works the same from both sides:
+The council uses Claude Code Agent Teams for parallel multi-model debate:
 
 ```
-Phase 0: Frame the question
-Phase 1: Both models take clear, opinionated positions (no hedging)
-Phase 2: Up to 3 rebuttal rounds
+Phase 0: Frame the question, create team via TeamCreate
+Phase 1: Two Agent subagents launched in parallel
+          - Claude advocate: formulates position directly
+          - Codex advocate: retrieves GPT-5.4 position via MCP
+Phase 2: Up to 3 rebuttal rounds (per-round agents)
           - Each model must CONCEDE where the other is right
           - Each model must COUNTER-ARGUE where the other is wrong
           - Positions UPDATE after each round
@@ -695,36 +837,39 @@ Phase 4: Council Decision with confidence level
 
 ---
 
-## Test Results
+## MCP Requirements
 
-All 26 agents have been tested bidirectionally. See [test-logs/TEST-REPORT.md](test-logs/TEST-REPORT.md) for the full report.
+### Required (for cross-model calls)
 
-### Summary (2026-03-07)
+| MCP Server | Purpose | Install |
+|------------|---------|---------|
+| `codex-mcp-server` | Allows Claude Code to invoke Codex as a tool | `claude mcp add codex -- npx -y codex-mcp-server` |
+| `claude-code-mcp` | Allows Codex to invoke Claude as a tool | Installed via `scripts/install.sh` or `scripts/install.js` |
 
-| Direction | Tested | Passed | Result |
-|-----------|--------|--------|--------|
-| Claude Code --> Codex | 8 agents | 8 | **100%** |
-| Codex --> Claude | 9 agents | 9 | **100%** |
-| **Total** | **17 agents** | **17** | **100%** |
+Both are offered during installation. Agents fall back to CLI commands when MCP servers are unavailable.
 
-### Key Observations
+### Optional (Enhance Agent Capabilities)
 
-- GPT-5.4 reviews were substantive with specific, actionable findings (not generic advice)
-- Opus produced 11 detailed, opinionated design decisions for a single toast component
-- Opus marketing copy was natural and in-brand (not generic marketing-speak)
-- `codex exec` adds ~15s overhead per call (acceptable for quality gates)
-- Running 4+ `claude -p` calls in parallel can stall; sequential is more reliable
+Agents will use these if available and skip gracefully if not:
+
+| MCP Server | API Key? | Purpose | Used By |
+|------------|----------|---------|---------|
+| **Auggie** (codebase-retrieval) | No | Semantic codebase search | planner, reviewer, council, gap-analyst |
+| **GitNexus** | No | Dependency graphs, impact analysis | architect, planner, gap-analyst |
+| **EXA** | Yes | Web research for patterns, CVEs, failures | devils-advocate, architect, security |
+| **shadcn/ui** | No | Component library reference | frontend agents |
+| **Greptile** | Yes | Automated PR review and scoring | Post-commit pipeline |
 
 ---
 
 ## Project Structure
 
 ```
-cross-model-agents/
+Cross-Model-Agents/
   assets/
-    banner.png                   # Repo banner image
+    banner.png                       # Repo banner image
   claude-code/
-    agents/                    # Claude Code agent definitions (.md)
+    agents/                          # Claude Code agent definitions (.md, v2.0.0)
       codex-anti-slop.md
       codex-architect.md
       codex-backend.md
@@ -735,12 +880,12 @@ cross-model-agents/
       codex-reviewer.md
       codex-security.md
       codex-ui-validator.md
-    skills/                    # Claude Code skills (slash commands)
-      codex-review/SKILL.md
-      council/SKILL.md
-      delegate/SKILL.md
+    skills/                          # Claude Code skills (slash commands)
+      codex-review/SKILL.md            (v2.0.0)
+      council/SKILL.md                 (v3.0.0 - Agent Teams)
+      delegate/SKILL.md               (v2.0.0 - worktree isolation)
   codex/
-    agents/                    # Codex agent definitions (.toml)
+    agents/                          # Codex agent definitions (.toml, v2.0.0)
       anti-slop.toml
       backend.toml
       claude-architect.toml
@@ -762,22 +907,33 @@ cross-model-agents/
       security.toml
       tester.toml
       ui-validator.toml
+  config.json                        # Provider registry, routing, scoring, concurrency
   docs/
-    auto-routing.md            # Auto-delegation configuration guide
+    auto-routing.md                  # Auto-delegation configuration guide
   scripts/
-    install.sh                 # One-command installation
-    uninstall.sh               # Clean removal
-    verify-install.sh            # Check installation integrity
-    pipeline/                  # Pipeline enforcement scripts
-      pipeline-init.sh           # Initialize checkpoint
-      pipeline-gate.sh           # Record gate results
-      pipeline-check.sh          # Verify gates passed
-      pipeline-reset.sh          # Clean up after commit
-      track-file-change.sh       # Track modified files
-      post-edit-reminder.sh      # PostToolUse hook
-      pre-commit-gate.sh         # PreToolUse commit gate
-      stop-gate.sh               # Stop hook
-  test-logs/                   # Bidirectional test results (gitignored)
+    install.sh                       # Bash installer (macOS/Linux)
+    install.js                       # Node.js installer (cross-platform, Windows)
+    uninstall.sh                     # Clean removal
+    verify-install.sh                # Check installation integrity
+    pipeline.js                      # Pipeline CLI (init, gate, check, reset, track, report, log, publish, fetch)
+    dashboard.html                   # Observability dashboard (single-file, zero dependencies)
+    pipeline/                        # Legacy bash pipeline scripts
+      pipeline-init.sh
+      pipeline-gate.sh
+      pipeline-check.sh
+      pipeline-reset.sh
+      track-file-change.sh
+      post-edit-reminder.sh
+      pre-commit-gate.sh
+      stop-gate.sh
+  tests/
+    static/
+      validate-agents.js             # Static agent validation (188 checks)
+    pipeline/
+      test-pipeline.js               # Pipeline unit tests (29 tests)
+    integration/
+      smoke-test.js                  # Integration smoke tests (5 dry-run checks)
+  test-logs/                         # Bidirectional test results
     TEST-REPORT.md
   .github/
     ISSUE_TEMPLATE/
@@ -785,7 +941,7 @@ cross-model-agents/
       feature_request.md
     PULL_REQUEST_TEMPLATE.md
     workflows/
-      validate.yml             # CI: TOML/MD validation
+      validate.yml                   # CI: static + pipeline tests
   CODE_OF_CONDUCT.md
   CONTRIBUTING.md
   LICENSE
@@ -801,12 +957,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 Key things to know:
 - Agent definitions are plain text (Markdown for Claude, TOML for Codex) -- no build step
 - Agents are installed as **symlinks** by default -- changes to the source files are immediately reflected
+- All agents include version numbers (YAML frontmatter for MD, `version` field for TOML)
+- Cross-model calls use MCP servers as the primary channel, with CLI fallback
+- Model configuration is centralized in `config.json` -- no hardcoded model IDs in agents
 - Run `scripts/verify-install.sh` to check that installed agents are in sync with the source
-- The install script (`scripts/install.sh`) copies files to global config directories
-- Test by running agents manually and checking that cross-model delegation works
-- All agents should degrade gracefully when optional MCP tools are unavailable
+- Run `node tests/static/validate-agents.js` to validate all agent schemas and structure
 - The anti-slop scoring formula is non-negotiable (it is the core quality gate)
-- The pipeline enforcement scripts (`scripts/pipeline/`) gate commits -- do not weaken their checks
+- The pipeline enforcement scripts gate commits -- do not weaken their checks
+- Gate agents must output structured JSON for pipeline integration
 
 ---
 

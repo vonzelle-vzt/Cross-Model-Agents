@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
@@ -18,11 +19,10 @@ Before sending anything to Claude for review, gather context:
 1. Write the plan/code + codebase context to:
    /tmp/codex-plan-$(uuidgen | tr '[:upper:]' '[:lower:]' | head -c 8).md
 
-2. Run:
-   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-     "You are a principal engineer doing adversarial review. Be thorough and specific.
+2. Use the claude-code-mcp tool to delegate to Claude Opus:
+   mcp claude_code with prompt: "You are a principal engineer doing adversarial review. Be thorough and specific.
 
-      $(cat /tmp/codex-plan-<id>.md)
+      <contents of /tmp/codex-plan-<id>.md>
 
       CODEBASE CONTEXT (from Auggie + GitNexus):
       <dependency graph, related files, patterns found>
@@ -43,6 +43,9 @@ Before sending anything to Claude for review, gather context:
 
       End with VERDICT: APPROVED or VERDICT: REVISE (with numbered changes)"
 
+   Fallback if claude-code-mcp is not available:
+   env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
+
 3. Parse Claude's VERDICT
 4. If REVISE: address EVERY piece of feedback, rewrite plan, re-run with updated context
 5. If APPROVED or 5 rounds: present final result with review history
@@ -52,7 +55,11 @@ Before sending anything to Claude for review, gather context:
 
 When Claude's review identifies a genuine tradeoff (not a bug, but a design choice where two approaches are valid), escalate to deliberation:
 1. YOU take a position on the tradeoff
-2. Run `env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions` asking Claude to take and defend its position
+2. Use the claude-code-mcp tool to delegate to Claude Opus:
+   mcp claude_code with prompt: "<ask Claude to take and defend its position>"
+
+   Fallback if claude-code-mcp is not available:
+   Run `env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions` asking Claude to take and defend its position
 3. Run up to 3 rebuttal rounds, grounding arguments in codebase evidence
 4. Synthesize into a COUNCIL DECISION: consensus, agreements, remaining tradeoffs
 

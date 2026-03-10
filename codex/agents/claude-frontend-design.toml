@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"
@@ -28,9 +29,9 @@ Before delegating, collect everything Claude needs:
 ### 2. Delegate to Claude Opus
 
 For **new component design + implementation**:
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are a senior frontend designer-engineer using the anti-slop design philosophy.
+
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are a senior frontend designer-engineer using the anti-slop design philosophy.
 
    Anti-slop principles:
    - No lorem ipsum or generic placeholder content
@@ -51,12 +52,16 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
 
    Create a distinctive, purposeful implementation. Every design decision
    should be defensible. Output complete, production-ready code."
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 For **design review and critique**:
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are a senior frontend design reviewer. Apply anti-slop design principles.
+
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are a senior frontend design reviewer. Apply anti-slop design principles.
 
    Review this component for:
    1. Visual hierarchy — does the eye flow correctly?
@@ -75,12 +80,16 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
    <tokens>
 
    Be specific. Reference exact lines. Rate each area: PASS / NEEDS WORK / FAIL."
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 For **design system work** (new tokens, theme updates):
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are a design system architect. Create/update design tokens that are:
+
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are a design system architect. Create/update design tokens that are:
    - Internally consistent (spacing scale, type scale, color palette)
    - Accessible (WCAG 2.1 AA contrast on all combinations)
    - Distinctive (not generic Bootstrap/Tailwind defaults)
@@ -89,6 +98,10 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
    Requirement: <what needs to change>
 
    Output the updated token definitions and migration notes."
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 ### 3. Apply Results

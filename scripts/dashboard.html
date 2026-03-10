@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Observability Dashboard</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --card: #16213e;
+    --text: #e0e0e0;
+    --text-dim: #8892a4;
+    --green: #00d97e;
+    --red: #ff4757;
+    --yellow: #ffc048;
+    --blue: #3498db;
+    --border: #2a2a4a;
+    --gate-anti-slop: #3498db;
+    --gate-ui-validation: #9b59b6;
+    --gate-devils-advocate: #e67e22;
+    --gate-gap-analysis: #1abc9c;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, 'Segoe UI', sans-serif; line-height: 1.5; padding: 20px; }
+  h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+  .subtitle { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 20px; }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  /* Data Loading */
+  .load-section { background: var(--card); border: 1px solid var(--border); padding: 20px; margin-bottom: 24px; }
+  .load-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .load-col { flex: 1; min-width: 250px; }
+  .drop-zone {
+    border: 2px dashed var(--border); padding: 24px; text-align: center; cursor: pointer;
+    color: var(--text-dim); font-size: 0.85rem; transition: border-color 0.2s;
+  }
+  .drop-zone.dragover { border-color: var(--blue); color: var(--blue); }
+  .drop-zone input { display: none; }
+  textarea {
+    width: 100%; height: 80px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    font-family: 'Consolas', 'Monaco', monospace; font-size: 0.8rem; padding: 8px; resize: vertical;
+  }
+  button {
+    background: var(--blue); color: #fff; border: none; padding: 6px 16px; cursor: pointer;
+    font-size: 0.8rem; margin-top: 6px;
+  }
+  button:hover { opacity: 0.85; }
+  .load-stats { margin-top: 10px; font-size: 0.8rem; color: var(--text-dim); font-family: monospace; }
+  .load-stats span { color: var(--blue); }
+
+  /* Gate Cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); padding: 16px;
+  }
+  .card-title { font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; font-family: monospace; }
+  .card-stat { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; }
+  .card-stat .label { color: var(--text-dim); }
+  .pass-rate { font-weight: 600; }
+  .pass-rate.high { color: var(--green); }
+  .pass-rate.med { color: var(--yellow); }
+  .pass-rate.low { color: var(--red); }
+  .mini-chart { display: flex; align-items: flex-end; gap: 2px; height: 30px; margin-top: 8px; }
+  .mini-bar {
+    flex: 1; min-width: 4px; max-width: 16px; border-radius: 1px 1px 0 0; transition: height 0.3s;
+  }
+
+  /* Score Trends */
+  .chart-section { background: var(--card); border: 1px solid var(--border); padding: 20px; margin-bottom: 24px; }
+  .chart-container { width: 100%; overflow-x: auto; }
+  svg.trend-chart { display: block; width: 100%; height: 220px; }
+  .chart-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 0.75rem; }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 10px; height: 10px; }
+
+  /* Timeline Table */
+  .table-section { background: var(--card); border: 1px solid var(--border); padding: 20px; margin-bottom: 24px; }
+  .table-wrap { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; font-family: 'Consolas', 'Monaco', monospace; }
+  th { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-weight: 600; position: sticky; top: 0; background: var(--card); }
+  td { padding: 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tr.row-pass { border-left: 3px solid var(--green); }
+  tr.row-fail { border-left: 3px solid var(--red); }
+  tr.row-info { border-left: 3px solid var(--blue); }
+  .show-all-btn { margin-top: 8px; font-size: 0.75rem; }
+
+  /* Summary Stats */
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat-box { background: var(--card); border: 1px solid var(--border); padding: 16px; }
+  .stat-value { font-size: 1.4rem; font-weight: 700; font-family: monospace; }
+  .stat-label { font-size: 0.75rem; color: var(--text-dim); margin-top: 2px; }
+
+  /* Empty state */
+  .empty { text-align: center; color: var(--text-dim); padding: 40px; font-size: 0.9rem; }
+  #dashboard { display: none; }
+
+  @media (max-width: 600px) {
+    body { padding: 10px; }
+    .load-row { flex-direction: column; }
+    .cards { grid-template-columns: 1fr; }
+    .summary { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Pipeline Observability Dashboard</h1>
+  <p class="subtitle">Load your .pipeline/logs/*.jsonl files to view pipeline analytics</p>
+
+  <!-- Data Loading -->
+  <div class="load-section">
+    <h2>Data Loading</h2>
+    <div class="load-row">
+      <div class="load-col">
+        <div class="drop-zone" id="dropZone">
+          <p>Drop .jsonl files here or click to browse</p>
+          <input type="file" id="fileInput" accept=".jsonl,.json,.txt" multiple>
+        </div>
+      </div>
+      <div class="load-col">
+        <textarea id="pasteArea" placeholder="Or paste JSONL data here (one JSON object per line)..."></textarea>
+        <div style="display:flex;gap:8px;">
+          <button id="loadPasteBtn">Load</button>
+          <button id="refreshBtn" style="background:var(--border);">Refresh</button>
+        </div>
+      </div>
+    </div>
+    <div class="load-stats" id="loadStats"></div>
+  </div>
+
+  <!-- Dashboard (hidden until data loaded) -->
+  <div id="dashboard">
+    <!-- Summary Stats -->
+    <h2>Summary</h2>
+    <div class="summary" id="summaryGrid"></div>
+
+    <!-- Gate Cards -->
+    <h2>Gate Pass/Fail Summary</h2>
+    <div class="cards" id="gateCards"></div>
+
+    <!-- Score Trends -->
+    <div class="chart-section">
+      <h2>Score Trends</h2>
+      <div class="chart-container" id="chartContainer"></div>
+      <div class="chart-legend" id="chartLegend"></div>
+    </div>
+
+    <!-- Event Timeline -->
+    <div class="table-section">
+      <h2>Event Timeline</h2>
+      <div class="table-wrap" id="tableWrap"></div>
+    </div>
+  </div>
+
+  <div class="empty" id="emptyState">No data loaded. Use the controls above to load JSONL log files.</div>
+</div>
+
+<script>
+const GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis'];
+const GATE_COLORS = {
+  anti_slop: 'var(--gate-anti-slop)',
+  ui_validation: 'var(--gate-ui-validation)',
+  devils_advocate: 'var(--gate-devils-advocate)',
+  gap_analysis: 'var(--gate-gap-analysis)'
+};
+const GATE_LABELS = {
+  anti_slop: 'anti_slop',
+  ui_validation: 'ui_validation',
+  devils_advocate: 'devils_advocate',
+  gap_analysis: 'gap_analysis'
+};
+
+let allEntries = [];
+let fileCount = 0;
+
+// --- Data loading ---
+
+function parseJSONL(text) {
+  const lines = text.split('\n');
+  const entries = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      entries.push(JSON.parse(trimmed));
+    } catch { /* skip malformed */ }
+  }
+  return entries;
+}
+
+function loadEntries(newEntries, files) {
+  if (files !== undefined) fileCount += files;
+  allEntries = allEntries.concat(newEntries);
+  allEntries.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  updateLoadStats();
+  render();
+}
+
+function resetAndLoad(newEntries, files) {
+  allEntries = [];
+  fileCount = files || 0;
+  allEntries = newEntries.slice();
+  allEntries.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  updateLoadStats();
+  render();
+}
+
+function updateLoadStats() {
+  const el = document.getElementById('loadStats');
+  if (allEntries.length === 0) {
+    el.textContent = '';
+    return;
+  }
+  el.innerHTML = 'Loaded <span>' + fileCount + '</span> file(s), <span>' + allEntries.length + '</span> entries';
+}
+
+// File input
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  readFiles(e.target.files);
+});
+
+// Drop zone
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('click', () => document.getElementById('fileInput').click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  readFiles(e.dataTransfer.files);
+});
+
+function readFiles(files) {
+  let pending = files.length;
+  const batch = [];
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      batch.push(...parseJSONL(e.target.result));
+      pending--;
+      if (pending === 0) loadEntries(batch, files.length);
+    };
+    reader.readAsText(file);
+  }
+}
+
+// Paste area
+document.getElementById('loadPasteBtn').addEventListener('click', () => {
+  const text = document.getElementById('pasteArea').value;
+  if (!text.trim()) return;
+  const entries = parseJSONL(text);
+  loadEntries(entries, 0);
+});
+
+// Refresh
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  if (allEntries.length > 0) render();
+});
+
+// --- Rendering ---
+
+function render() {
+  const dash = document.getElementById('dashboard');
+  const empty = document.getElementById('emptyState');
+  if (allEntries.length === 0) {
+    dash.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+  dash.style.display = 'block';
+  empty.style.display = 'none';
+
+  renderSummary();
+  renderGateCards();
+  renderChart();
+  renderTimeline();
+}
+
+function getGateResults() {
+  return allEntries.filter(e => e.event === 'gate_result');
+}
+
+// --- Summary Stats ---
+
+function renderSummary() {
+  const grid = document.getElementById('summaryGrid');
+  const gateResults = getGateResults();
+  const sessions = allEntries.filter(e => e.event === 'pipeline_init');
+  const uniqueSessions = new Set(sessions.map(s => s.session_id).filter(Boolean));
+
+  // Overall pass rate (for scored gates: passed vs failed)
+  const scored = gateResults.filter(e => e.status === 'passed' || e.status === 'failed');
+  const passRate = scored.length > 0 ? (scored.filter(e => e.status === 'passed').length / scored.length * 100) : 0;
+
+  // Average session duration (init to last gate)
+  let avgDuration = null;
+  const sessionMap = {};
+  for (const e of allEntries) {
+    if (e.event === 'pipeline_init' && e.session_id) {
+      sessionMap[e.session_id] = { init: new Date(e.timestamp), last: new Date(e.timestamp) };
+    }
+  }
+  // We cannot reliably map gate_results to sessions from the log alone,
+  // so compute time from first init to last event as a rough proxy per batch.
+  const inits = allEntries.filter(e => e.event === 'pipeline_init');
+  const resets = allEntries.filter(e => e.event === 'pipeline_reset');
+  if (inits.length > 0) {
+    const first = new Date(inits[0].timestamp);
+    const lastEntry = allEntries[allEntries.length - 1];
+    const last = new Date(lastEntry.timestamp);
+    const totalMs = last - first;
+    if (uniqueSessions.size > 1) {
+      avgDuration = Math.round(totalMs / uniqueSessions.size / 1000);
+    }
+  }
+
+  // Most common failure gate
+  const failures = gateResults.filter(e => e.status === 'failed');
+  const failCounts = {};
+  for (const f of failures) {
+    failCounts[f.gate] = (failCounts[f.gate] || 0) + 1;
+  }
+  let topFailGate = '-';
+  let topFailCount = 0;
+  for (const [gate, count] of Object.entries(failCounts)) {
+    if (count > topFailCount) { topFailGate = gate; topFailCount = count; }
+  }
+
+  const blocked = allEntries.filter(e => e.event === 'commit_blocked').length;
+
+  const stats = [
+    { value: uniqueSessions.size, label: 'Pipeline Sessions' },
+    { value: gateResults.length, label: 'Total Gate Runs' },
+    { value: passRate.toFixed(1) + '%', label: 'Overall Pass Rate (scored)', color: passRate > 80 ? 'var(--green)' : passRate > 50 ? 'var(--yellow)' : 'var(--red)' },
+    { value: blocked, label: 'Commits Blocked' },
+    { value: topFailGate, label: 'Most Common Failure' },
+    { value: avgDuration !== null ? avgDuration + 's' : '-', label: 'Avg Session Span' }
+  ];
+
+  grid.innerHTML = stats.map(s =>
+    '<div class="stat-box"><div class="stat-value"' + (s.color ? ' style="color:' + s.color + '"' : '') + '>' + s.value + '</div><div class="stat-label">' + s.label + '</div></div>'
+  ).join('');
+}
+
+// --- Gate Cards ---
+
+function renderGateCards() {
+  const container = document.getElementById('gateCards');
+  const gateResults = getGateResults();
+
+  container.innerHTML = GATES.map(gate => {
+    const results = gateResults.filter(e => e.gate === gate);
+    const total = results.length;
+    if (total === 0) {
+      return '<div class="card"><div class="card-title" style="color:' + GATE_COLORS[gate] + '">' + gate + '</div><div class="card-stat"><span class="label">No data</span></div></div>';
+    }
+
+    // For pass rate: count passed vs failed (ignore "completed" which is neither)
+    const passable = results.filter(e => e.status === 'passed' || e.status === 'failed');
+    const passed = passable.filter(e => e.status === 'passed').length;
+    const rate = passable.length > 0 ? (passed / passable.length * 100) : 100;
+    const rateClass = rate > 80 ? 'high' : rate > 50 ? 'med' : 'low';
+
+    // Average score (only for entries with numeric scores)
+    const scored = results.filter(e => typeof e.score === 'number');
+    const avgScore = scored.length > 0 ? (scored.reduce((s, e) => s + e.score, 0) / scored.length).toFixed(1) : '-';
+
+    // Mini bar chart (last 10 scored results)
+    const recent = scored.slice(-10);
+    const bars = recent.map(e => {
+      const h = Math.max(2, (e.score / 10) * 28);
+      const color = e.score >= 7 ? 'var(--green)' : e.score >= 5 ? 'var(--yellow)' : 'var(--red)';
+      return '<div class="mini-bar" style="height:' + h + 'px;background:' + color + ';" title="' + e.score + '"></div>';
+    }).join('');
+
+    return '<div class="card">' +
+      '<div class="card-title" style="color:' + GATE_COLORS[gate] + '">' + gate + '</div>' +
+      '<div class="card-stat"><span class="label">Total runs</span><span>' + total + '</span></div>' +
+      '<div class="card-stat"><span class="label">Pass rate</span><span class="pass-rate ' + rateClass + '">' + (passable.length > 0 ? rate.toFixed(0) + '%' : 'N/A') + '</span></div>' +
+      '<div class="card-stat"><span class="label">Avg score</span><span>' + avgScore + '</span></div>' +
+      (bars ? '<div class="mini-chart">' + bars + '</div>' : '') +
+      '</div>';
+  }).join('');
+}
+
+// --- Score Trend Chart (SVG) ---
+
+function renderChart() {
+  const container = document.getElementById('chartContainer');
+  const legend = document.getElementById('chartLegend');
+  const gateResults = getGateResults();
+  const scored = gateResults.filter(e => typeof e.score === 'number');
+
+  if (scored.length === 0) {
+    container.innerHTML = '<div class="empty" style="padding:20px;">No scored gate results to chart.</div>';
+    legend.innerHTML = '';
+    return;
+  }
+
+  const W = 800, H = 200, PAD_L = 40, PAD_R = 20, PAD_T = 10, PAD_B = 30;
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = H - PAD_T - PAD_B;
+
+  // Gather per-gate data, last 30 points each
+  const gateData = {};
+  for (const gate of GATES) {
+    const pts = scored.filter(e => e.gate === gate).slice(-30);
+    if (pts.length > 0) gateData[gate] = pts;
+  }
+
+  // Global time range across all displayed gates
+  let allPts = [];
+  for (const pts of Object.values(gateData)) allPts = allPts.concat(pts);
+  allPts.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  const tMin = new Date(allPts[0].timestamp).getTime();
+  const tMax = new Date(allPts[allPts.length - 1].timestamp).getTime();
+  const tRange = tMax - tMin || 1;
+
+  function x(ts) { return PAD_L + ((new Date(ts).getTime() - tMin) / tRange) * plotW; }
+  function y(score) { return PAD_T + plotH - (score / 10) * plotH; }
+
+  let svg = '<svg class="trend-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+
+  // Grid lines
+  for (let s = 0; s <= 10; s += 2) {
+    const yy = y(s);
+    svg += '<line x1="' + PAD_L + '" y1="' + yy + '" x2="' + (W - PAD_R) + '" y2="' + yy + '" stroke="var(--border)" stroke-width="0.5"/>';
+    svg += '<text x="' + (PAD_L - 4) + '" y="' + (yy + 3) + '" fill="var(--text-dim)" font-size="10" text-anchor="end" font-family="monospace">' + s + '</text>';
+  }
+
+  // Threshold line at 7
+  const threshY = y(7);
+  svg += '<line x1="' + PAD_L + '" y1="' + threshY + '" x2="' + (W - PAD_R) + '" y2="' + threshY + '" stroke="var(--yellow)" stroke-width="1" stroke-dasharray="6,3"/>';
+  svg += '<text x="' + (W - PAD_R + 2) + '" y="' + (threshY + 3) + '" fill="var(--yellow)" font-size="9" font-family="monospace">7</text>';
+
+  // Time labels (first and last)
+  const fmt = d => { const dt = new Date(d); return dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); };
+  svg += '<text x="' + PAD_L + '" y="' + (H - 4) + '" fill="var(--text-dim)" font-size="9" font-family="monospace">' + fmt(allPts[0].timestamp) + '</text>';
+  svg += '<text x="' + (W - PAD_R) + '" y="' + (H - 4) + '" fill="var(--text-dim)" font-size="9" text-anchor="end" font-family="monospace">' + fmt(allPts[allPts.length - 1].timestamp) + '</text>';
+
+  // Plot lines per gate
+  const rawColors = { anti_slop: '#3498db', ui_validation: '#9b59b6', devils_advocate: '#e67e22', gap_analysis: '#1abc9c' };
+  for (const [gate, pts] of Object.entries(gateData)) {
+    const color = rawColors[gate] || '#888';
+    if (pts.length === 1) {
+      svg += '<circle cx="' + x(pts[0].timestamp) + '" cy="' + y(pts[0].score) + '" r="3" fill="' + color + '"/>';
+    } else {
+      const d = pts.map((p, i) => (i === 0 ? 'M' : 'L') + x(p.timestamp).toFixed(1) + ',' + y(p.score).toFixed(1)).join(' ');
+      svg += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2"/>';
+      for (const p of pts) {
+        svg += '<circle cx="' + x(p.timestamp).toFixed(1) + '" cy="' + y(p.score).toFixed(1) + '" r="2.5" fill="' + color + '"/>';
+      }
+    }
+  }
+
+  svg += '</svg>';
+  container.innerHTML = svg;
+
+  // Legend
+  legend.innerHTML = Object.keys(gateData).map(gate =>
+    '<div class="legend-item"><div class="legend-dot" style="background:' + rawColors[gate] + '"></div>' + gate + '</div>'
+  ).join('');
+}
+
+// --- Event Timeline ---
+
+let showAll = false;
+
+function renderTimeline() {
+  const wrap = document.getElementById('tableWrap');
+  const reversed = allEntries.slice().reverse();
+  const LIMIT = 100;
+  const display = showAll ? reversed : reversed.slice(0, LIMIT);
+
+  let html = '<table><thead><tr><th>Timestamp</th><th>Event</th><th>Gate</th><th>Status</th><th>Score</th><th>Details</th></tr></thead><tbody>';
+
+  for (const e of display) {
+    let rowClass = 'row-info';
+    if (e.status === 'passed' || e.status === 'completed') rowClass = 'row-pass';
+    else if (e.status === 'failed') rowClass = 'row-fail';
+    else if (e.event === 'commit_blocked') rowClass = 'row-fail';
+
+    const ts = e.timestamp ? new Date(e.timestamp).toLocaleString() : '-';
+    const gate = e.gate || '-';
+    const status = e.status || '-';
+    const score = (typeof e.score === 'number') ? e.score : '-';
+
+    let details = '';
+    if (e.session_id) details = 'session: ' + e.session_id;
+    if (e.missing_gates) details = e.missing_gates.join(', ');
+    if (e.repo) details += (details ? ' | ' : '') + e.repo;
+    if (e.round) details += (details ? ' | ' : '') + 'round ' + e.round;
+
+    html += '<tr class="' + rowClass + '"><td>' + ts + '</td><td>' + e.event + '</td><td>' + gate + '</td><td>' + status + '</td><td>' + score + '</td><td>' + details + '</td></tr>';
+  }
+
+  html += '</tbody></table>';
+
+  if (!showAll && reversed.length > LIMIT) {
+    html += '<button class="show-all-btn" id="showAllBtn">Show all (' + reversed.length + ' entries)</button>';
+  } else if (showAll && reversed.length > LIMIT) {
+    html += '<button class="show-all-btn" id="showAllBtn">Collapse to ' + LIMIT + '</button>';
+  }
+
+  wrap.innerHTML = html;
+
+  const btn = document.getElementById('showAllBtn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      showAll = !showAll;
+      renderTimeline();
+    });
+  }
+}
+</script>
+</body>
+</html>

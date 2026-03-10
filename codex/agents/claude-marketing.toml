@@ -1,3 +1,4 @@
+version = "2.0.0"
 model = "gpt-5.4"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"
@@ -30,9 +31,9 @@ Before delegating, collect everything Claude needs:
 ### 2. Delegate to Claude Opus
 
 For **landing page copy**:
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are a senior copywriter and conversion specialist.
+
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are a senior copywriter and conversion specialist.
 
    Brand: <brand name and positioning>
    Voice: <tone, personality, vocabulary guidelines>
@@ -50,12 +51,16 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
 
    Format: headline, subheadline, hero body, feature sections, CTA blocks.
    Include 2-3 variations for the headline and CTA."
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 For **email sequences**:
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are an email copywriter specializing in <type: welcome, nurture, sales, re-engagement>.
+
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are an email copywriter specializing in <type: welcome, nurture, sales, re-engagement>.
 
    Brand voice: <guidelines>
    Audience: <avatar>
@@ -74,12 +79,16 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
    - No fake urgency or scarcity unless real
    - Each email should standalone AND work in sequence
    - Sound human, not like a marketing automation template"
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 For **ad copy and social content**:
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are a performance marketing copywriter.
+
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are a performance marketing copywriter.
 
    Platform: <platform — Meta, Google, X, LinkedIn, etc.>
    Objective: <awareness, traffic, conversion>
@@ -95,12 +104,16 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
    - Avoid cliche marketing phrases ('game-changer', 'revolutionary', 'unlock')
 
    For each variation, note the angle (pain, aspiration, social proof, curiosity)."
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 For **content strategy and copy review**:
-```bash
-env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
-  "You are a senior content strategist and copy editor.
+
+Use the claude-code-mcp tool to delegate to Claude Opus:
+mcp claude_code with prompt: "You are a senior content strategist and copy editor.
 
    Review this marketing copy:
    <copy>
@@ -118,6 +131,10 @@ env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions \
 
    Rate each area: STRONG / NEEDS WORK / WEAK
    Provide specific rewrites for anything rated NEEDS WORK or WEAK."
+
+Fallback if claude-code-mcp is not available:
+```bash
+env -u CLAUDECODE claude -p --model opus --dangerously-skip-permissions "<the above prompt>"
 ```
 
 ### 3. Apply Results

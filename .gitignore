@@ -3,6 +3,9 @@ node_modules/
 *.log
 /tmp/
 
+# Pipeline state and logs (local to each developer)
+.pipeline/
+
 # Test logs from validation runs (may contain personal project context)
 test-logs/
 

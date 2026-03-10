@@ -169,65 +169,70 @@ fi
 
 # Pipeline enforcement scripts
 PIPELINE_DIR="$REPO_DIR/scripts/pipeline"
+PIPELINE_JS="$REPO_DIR/scripts/pipeline.js"
+
+# Install Node.js pipeline (cross-platform, replaces bash scripts)
+LOCAL_BIN="$HOME/.local/bin"
+mkdir -p "$LOCAL_BIN"
+
+if [ -f "$PIPELINE_JS" ]; then
+  if $USE_SYMLINKS; then
+    ln -sf "$PIPELINE_JS" "$LOCAL_BIN/pipeline.js"
+  else
+    cp "$PIPELINE_JS" "$LOCAL_BIN/pipeline.js"
+  fi
+  ok "Pipeline enforcement (Node.js) → $LOCAL_BIN/pipeline.js"
+fi
+
+# Also install legacy bash scripts for backward compatibility
 if [ -d "$PIPELINE_DIR" ]; then
   chmod +x "$PIPELINE_DIR"/*.sh 2>/dev/null || true
-  ok "Pipeline scripts ready at $PIPELINE_DIR"
-
-  # Symlink pipeline scripts to ~/.local/bin for portable agent references
-  LOCAL_BIN="$HOME/.local/bin"
-  mkdir -p "$LOCAL_BIN"
   for script in "$PIPELINE_DIR"/*.sh; do
     ln -sf "$script" "$LOCAL_BIN/$(basename "$script")"
   done
-  ok "Pipeline scripts linked to $LOCAL_BIN"
+  ok "Legacy pipeline scripts linked to $LOCAL_BIN"
+fi
 
-  # Install git pre-commit hook
-  GITHOOKS_DIR="$HOME/.githooks"
-  mkdir -p "$GITHOOKS_DIR"
-  if [ -f "$GITHOOKS_DIR/pre-commit" ]; then
-    info "Git pre-commit hook already exists — skipping (check manually)"
-  else
-    cat > "$GITHOOKS_DIR/pre-commit" << 'HOOKEOF'
+# Install git pre-commit hook (uses Node.js pipeline)
+GITHOOKS_DIR="$HOME/.githooks"
+mkdir -p "$GITHOOKS_DIR"
+if [ -f "$GITHOOKS_DIR/pre-commit" ]; then
+  info "Git pre-commit hook already exists — skipping (check manually)"
+else
+  cat > "$GITHOOKS_DIR/pre-commit" << 'HOOKEOF'
 #!/bin/bash
 # Pipeline enforcement pre-commit hook
 # Installed by cross-model-agents installer
 # Override: SKIP_PIPELINE_CHECK=1 git commit ...
 
 if [ "${SKIP_PIPELINE_CHECK:-0}" = "1" ]; then
-  echo "⚠ Pipeline check skipped (SKIP_PIPELINE_CHECK=1)"
+  echo "Pipeline check skipped (SKIP_PIPELINE_CHECK=1)"
   exit 0
 fi
 
-REPO_SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || echo 'unknown')")
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')
-BRANCH_SAFE=$(echo "$BRANCH" | tr '/' '-')
-CHECKPOINT="/tmp/pipeline-state-${REPO_SLUG}-${BRANCH_SAFE}.json"
-
-# No checkpoint = no pipeline active = allow commit
-[ ! -f "$CHECKPOINT" ] && exit 0
-
-ALLOWED=$(jq -r '.commit_allowed' "$CHECKPOINT" 2>/dev/null)
-if [ "$ALLOWED" = "true" ]; then
-  exit 0
+# Use Node.js pipeline if available, fall back to legacy bash
+PIPELINE_JS="$HOME/.local/bin/pipeline.js"
+if [ -f "$PIPELINE_JS" ] && command -v node &>/dev/null; then
+  node "$PIPELINE_JS" check && exit 0
+  echo ""
+  echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."
+  exit 1
 fi
 
-echo ""
-echo "PIPELINE GATE: Commit blocked — required gates not completed"
-echo ""
-jq -r '
-  .gates as $g |
-  "  anti_slop: " + (if $g.anti_slop.status == "passed" then "PASSED" else "NOT PASSED" end) + "\n" +
-  "  devils_advocate: " + (if $g.devils_advocate.status == "completed" then "COMPLETED" else "NOT RUN" end) + "\n" +
-  "  gap_analysis: " + (if $g.gap_analysis.status == "completed" then "COMPLETED" else "NOT RUN" end) +
-  (if .has_frontend_changes then "\n  ui_validation: " + (if $g.ui_validation.status == "passed" then "PASSED" else "NOT PASSED" end) else "" end)
-' "$CHECKPOINT" 2>/dev/null || echo "  (could not read checkpoint)"
-echo ""
-echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."
-exit 1
+# Legacy fallback
+PIPELINE_CHECK="$HOME/.local/bin/pipeline-check.sh"
+if [ -f "$PIPELINE_CHECK" ]; then
+  "$PIPELINE_CHECK" && exit 0
+  echo ""
+  echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."
+  exit 1
+fi
+
+# No pipeline installed = allow commit
+exit 0
 HOOKEOF
-    chmod +x "$GITHOOKS_DIR/pre-commit"
-    ok "Installed git pre-commit hook → $GITHOOKS_DIR/pre-commit"
-  fi
+  chmod +x "$GITHOOKS_DIR/pre-commit"
+  ok "Installed git pre-commit hook → $GITHOOKS_DIR/pre-commit"
 fi
 
 echo ""
@@ -295,6 +300,37 @@ install_mcp_codex_note() {
     info "For Codex: Add [$name] to ~/.codex/config.toml under [mcp_servers]"
   fi
 }
+
+# --- Cross-Model Communication (Required for MCP-based delegation) ---
+
+echo -e "${BOLD}Cross-Model Communication${NC}"
+echo ""
+echo "  These MCP servers enable cross-model delegation without CLI shell-outs."
+echo "  They reduce latency, improve reliability, and remove --dangerously-skip-permissions."
+echo ""
+
+# Codex MCP Server (for Claude Code → Codex delegation)
+echo "  codex-mcp-server — Wraps Codex CLI as an MCP server"
+echo "  Allows Claude Code agents to call Codex via structured MCP tool calls."
+if ask "Install codex-mcp-server?"; then
+  install_mcp_claude "codex" "npx" "-y codex-mcp-server"
+  MCP_INSTALLED+=("codex-mcp-server")
+fi
+echo ""
+
+# Claude Code MCP Server (for Codex → Claude delegation)
+echo "  claude-code-mcp — Wraps Claude Code as an MCP server"
+echo "  Allows Codex agents to call Claude via structured MCP tool calls."
+if ask "Install claude-code-mcp?"; then
+  if $CODEX_OK; then
+    info "For Codex, add to ~/.codex/config.toml:"
+    echo '    [mcp_servers."claude-code-mcp"]'
+    echo '    command = "npx"'
+    echo '    args = ["-y", "@anthropic-ai/claude-code-mcp@latest"]'
+  fi
+  MCP_INSTALLED+=("claude-code-mcp")
+fi
+echo ""
 
 # --- Codebase Intelligence ---
 
