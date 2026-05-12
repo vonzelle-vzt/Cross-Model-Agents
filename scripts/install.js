@@ -814,7 +814,7 @@ async function main() {
   console.log(`  ${BLUE}Pipeline:${NC}`);
   console.log('    Plan -> Anti-Slop Gate -> UI Validation -> Devil\'s Advocate -> Gap Analysis -> Commit -> PR -> Merge');
   console.log('');
-  console.log('  Docs: https://github.com/Dallionking/cross-model-agents');
+  console.log('  Docs: https://github.com/vonzelle-vzt/Cross-Model-Agents');
   console.log('');
 
   rl.close();

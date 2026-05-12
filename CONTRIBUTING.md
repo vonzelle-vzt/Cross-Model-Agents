@@ -5,8 +5,8 @@ Thanks for your interest in contributing! This project provides bidirectional ad
 ## Getting Started
 
 ```bash
-git clone https://github.com/Dallionking/cross-model-agents.git
-cd cross-model-agents
+git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
+cd Cross-Model-Agents
 ./scripts/install.sh
 ```
 

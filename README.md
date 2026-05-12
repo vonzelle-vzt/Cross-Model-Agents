@@ -754,4 +754,4 @@ Key things to know:
 
 **VZT Tech Consulting**
 Contact: [vonzelle@vzttechconsulting.com](mailto:vonzelle@vzttechconsulting.com)
-Issues: <https://github.com/Dallionking/cross-model-agents/issues>
+Issues: <https://github.com/vonzelle-vzt/Cross-Model-Agents/issues>

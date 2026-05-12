@@ -132,7 +132,7 @@ Community Impact Guidelines (Section 6) are inspired by [Mozilla's code of condu
 
 The Cross-Model Adversarial Agents project is maintained by **VZT Tech Consulting**.
 For Code of Conduct enforcement or any community-related concern, contact **vonzelle@vzttechconsulting.com**.
-For general project questions, open a GitHub issue at <https://github.com/Dallionking/cross-model-agents/issues>.
+For general project questions, open a GitHub issue at <https://github.com/vonzelle-vzt/Cross-Model-Agents/issues>.
 
 For answers to common questions about this Code of Conduct, see the FAQ at <https://www.contributor-covenant.org/faq>. Translations are available at <https://www.contributor-covenant.org/translations>.
 
