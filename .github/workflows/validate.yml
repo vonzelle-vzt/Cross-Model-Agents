@@ -46,7 +46,16 @@ jobs:
           echo "=== Checking claude-code/agents/ ==="
           for f in $(find claude-code/agents -name '*.md' 2>/dev/null); do
             first_line=$(head -n 1 "$f")
-            if echo "$first_line" | grep -q '^# '; then
+            if echo "$first_line" | grep -q '^---$'; then
+              # YAML frontmatter present — heading must come after closing ---
+              heading=$(awk 'NR==1{next} /^---$/{found=1;next} found && /^# /{print;exit}' "$f")
+              if [ -n "$heading" ]; then
+                echo "OK: $f (frontmatter + heading)"
+              else
+                echo "FAIL: $f (has frontmatter but no # heading after it)"
+                failed=1
+              fi
+            elif echo "$first_line" | grep -q '^# '; then
               echo "OK: $f"
             else
               echo "FAIL: $f (first line: '$first_line')"

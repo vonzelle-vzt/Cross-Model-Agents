@@ -2,82 +2,229 @@
   <img src="assets/banner.png" alt="Cross-Model Adversarial Agents" width="100%">
 </p>
 
-# Cross-Model Adversarial Agents
+<h1 align="center">Cross-Model Adversarial Agents</h1>
 
-**Bidirectional adversarial review between Claude Code (Opus 4.7 / Sonnet 4.6 / Haiku 4.5) and OpenAI Codex CLI (GPT-5.5 / GPT-5.4).** Each model acts as the other's devil's advocate, reviewer, and gate scorer — eliminating single-model blindness from AI-assisted development.
+<p align="center">
+  <b>Two frontier models. Each one reviews the other's work.</b><br>
+  Bidirectional adversarial review between <b>Claude Code (Opus 4.7)</b> and <b>OpenAI Codex CLI (GPT-5.5)</b> — every plan, every diff, every commit goes through the other model's blind-spot filter before it ships.
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Claude Code](https://img.shields.io/badge/Claude_Code-Opus_4.7-blueviolet)](https://docs.claude.com/en/docs/claude-code)
-[![Codex CLI](https://img.shields.io/badge/Codex_CLI-GPT--5.5-green)](https://github.com/openai/codex)
-[![Agents](https://img.shields.io/badge/Agents-31-orange)]()
-[![Skills](https://img.shields.io/badge/Skills-4-yellow)]()
-[![Tests](https://img.shields.io/badge/Tests-236_passing-brightgreen)]()
-[![Version](https://img.shields.io/badge/Version-3.0.0-blue)]()
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://docs.claude.com/en/docs/claude-code"><img src="https://img.shields.io/badge/Claude_Code-Opus_4.7-blueviolet" alt="Claude Code Opus 4.7"></a>
+  <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/Codex_CLI-GPT--5.5-green" alt="Codex CLI GPT-5.5"></a>
+  <img src="https://img.shields.io/badge/Agents-31-orange" alt="31 agents">
+  <img src="https://img.shields.io/badge/Skills-4-yellow" alt="4 skills">
+  <img src="https://img.shields.io/badge/Tests-236_passing-brightgreen" alt="236 tests passing">
+  <img src="https://img.shields.io/badge/Version-3.0.0-blue" alt="v3.0.0">
+</p>
 
-> **Maintained by [VZT Tech Consulting](mailto:vonzelle@vzttechconsulting.com)**
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="docs/USAGE.md">Usage guide</a> ·
+  <a href="docs/PRD.md">Product spec</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+<p align="center"><sub>Maintained by <a href="mailto:vonzelle@vzttechconsulting.com">VZT Tech Consulting</a> · MIT licensed</sub></p>
+
+---
+
+## The problem
+
+When one model plans, implements, and reviews its own work, it does not challenge its own assumptions. It has systematic blind spots baked into its training data. A second model — trained on different data, with different priors — catches what the first one misses.
+
+```
+                       single-model loop                              cross-model loop
+                       ────────────────────                           ────────────────────────────────────
+                       Plan  → Build  → Review                        Plan  →  Review (B)  →  Build
+                       └──── same blind spots ────┘                          ↓
+                                                                      Anti-slop (B scores A)
+                                                                             ↓
+                                                                      Devil's advocate (B)  →  Ship
+```
+
+This repo ships **31 agents, 4 skills, and a pipeline CLI** that wires that loop into Claude Code and Codex CLI. Gates block `git commit` until both models have signed off. Bypasses are logged with the developer's email and a reason.
+
+---
+
+## Quickstart
+
+```bash
+# 1. Install both CLIs
+npm install -g @anthropic-ai/claude-code    # if you don't already have it
+npm install -g @openai/codex
+claude auth login
+codex login
+
+# 2. Clone and install the agents + skills + pipeline + git hook
+git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
+cd Cross-Model-Agents
+node scripts/install.js --yes
+
+# 3. Verify everything wired up
+node scripts/pipeline.js doctor
+```
+
+You should see:
+
+```
+ok  claude CLI available
+ok  codex CLI available
+ok  pre-commit hook installed
+ok  config.json: providers configured
+Doctor result: clean.
+```
+
+### First-five-minutes test drive
+
+Open Claude Code in any project:
+
+```
+/codex-review          # have Codex adversarially review your current plan
+/council Should we use SSR or CSR?   # parallel Claude vs Codex debate
+Use the codex-reviewer agent to review my auth code.
+```
+
+Open Codex CLI in the same project:
+
+```
+@claude-reviewer Review my implementation.
+@claude-devils-advocate Challenge my approach.
+```
+
+That's it. Cross-model review is now in your loop.
+
+---
+
+## How it works
+
+### The pipeline
+
+```
+    Plan
+     │
+     ▼
+  /codex-review (iterative — Codex challenges plan)  ──── BLOCKER
+     │
+     ▼
+  Implement (you / Claude / Codex)
+     │
+     ▼
+  Anti-Slop Gate (worker models, per-file fan-out)   ──── BLOCKER
+     │     Score ≥ 7/10 to pass. Up to 2 fix rounds.
+     ▼
+  UI Validation Gate (if frontend files changed)     ──── BLOCKER
+     │     Cross-model code review + agent-browser screenshots.
+     ▼
+  Devil's Advocate (frontier model challenges all assumptions)  ──── BLOCKER
+     │
+     ▼
+  Gap Analysis (fallback model — spec vs build, 10 dimensions)  ──── BLOCKER
+     │
+     ▼
+  git commit (blocked until all gates pass — or audited bypass)
+     │
+     ▼
+  pipeline.js publish → GitHub commit statuses → PR → Greptile → Merge
+```
+
+### Architecture
+
+```
+                CLAUDE CODE                                CODEX CLI
+                (Opus 4.7 / Sonnet 4.6 / Haiku 4.5)        (GPT-5.5 / GPT-5.4)
+
+    Claude-side agents (delegate TO Codex)         Codex-side agents (delegate TO Claude)
+    ───────────────────────────────────────        ──────────────────────────────────────
+    codex-reviewer        ──review──→              claude-reviewer
+    codex-devils-advocate ──challenge──→           claude-devils-advocate
+    codex-architect       ──architecture──→        claude-architect
+    codex-frontend        ──frontend──→            claude-frontend / claude-frontend-design
+    codex-backend                                  claude-marketing  (Opus copy strength)
+    codex-gap-analyst     ──gap analysis──→        claude-gap-analyst
+    codex-qa              ──QA──→                  claude-qa
+    codex-security        ──security audit──→      claude-security
+    codex-anti-slop       ──slop scoring──→        anti-slop (Claude scores Codex)
+    codex-ui-validator                             ui-validator
+
+    Skills (slash commands)                        Orchestration agents
+    ───────────────────────                        ──────────────────────
+    /codex-review     iterative plan review        planner   (auto-sends to Claude)
+    /council          multi-model debate           executor  (build + anti-slop)
+    /delegate         coordinator mode             reviewer  (strict review)
+    /pipeline-doctor  health-check + fix           council   (multi-model debate)
+                                                   default / backend / frontend / explorer / tester
+```
+
+### Communication layer
+
+Cross-model calls use **MCP (Model Context Protocol) servers** with CLI fallback:
+
+| Direction | Primary (MCP) | Fallback (CLI) |
+|---|---|---|
+| Claude → Codex | `mcp__codex__codex(prompt, model, sandbox)` | `codex exec -m gpt-5.5 -s read-only ...` |
+| Codex → Claude | `mcp claude_code` via claude-code-mcp | `env -u CLAUDECODE claude -p --model opus ...` |
+
+MCP eliminates ~15s cold-start overhead, enables structured JSON responses, and removes the need for `--dangerously-skip-permissions`.
+
+### Enforcement layer
+
+Three mechanisms prevent ungated code from reaching `main`:
+
+| Mechanism | Type | What it does |
+|---|---|---|
+| **Post-edit reminder** | Claude Code `PostToolUse` hook | Nags after every file edit |
+| **Commit gate** | Claude `PreToolUse` hook + git `pre-commit` hook | **Blocks `git commit`** |
+| **Session check** | Claude Code `Stop` hook | Warns if you end the session with gates incomplete |
+
+State lives in `.pipeline/state-<branch>.json` (project root, gitignored). Atomic writes + file locking prevent races. GitHub commit statuses are published from the same state via `pipeline.js publish`.
+
+---
+
+## Who is this for
+
+- **Solo developers** using AI coding assistants who want a structurally different second opinion.
+- **Teams** enforcing cross-model quality gates in AI-assisted workflows.
+- **Security-sensitive shops** that need an independent reviewer with different training data.
 
 ---
 
 ## What's new in v3.0.0 (May 2026)
 
 - **Model lineup refreshed** — Opus 4.7, GPT-5.5, Haiku 4.5 worker tier, Sonnet 4.6 fallback.
-- **Per-gate model tiering** — anti-slop and UI gates fan out across cheap worker models; devil's advocate stays on the frontier tier. Configured in `config.json` under `routing.gates`.
+- **Per-gate model tiering** — anti-slop and UI gates fan out across cheap worker models; devil's advocate stays on frontier. Configured in `config.json` under `routing.gates`.
 - **`pipeline.js doctor`** — single-command environment health check.
 - **`pipeline.js bypass --reason "<text>"`** — every commit-gate override is now logged, with a 12-char minimum reason.
-- **Cross-platform pre-commit hook** — installer now also sets `git core.hooksPath`. The hook actually fires out of the box on macOS, Linux, and Windows.
+- **Cross-platform pre-commit hook** — installer sets `git core.hooksPath`. The hook actually fires out of the box on macOS, Linux, and Windows.
 - **Atomic state writes + file locking** — no more lost gate results when multiple agents write in parallel.
 - **`status --json`** — machine-readable state for CI / IDE plugins.
-- **`gate --violations file.json`** — gates can now push full structured-JSON violation detail into pipeline state.
+- **`gate --violations file.json`** — gates push full structured-JSON violation detail into pipeline state.
 - **Legacy bash scripts removed** — they read state from a different path and were silently disabling gates.
 
-Full details in [CHANGELOG.md](CHANGELOG.md). Product spec in [docs/PRD.md](docs/PRD.md).
+Full details in [CHANGELOG.md](CHANGELOG.md). Day-to-day usage in [docs/USAGE.md](docs/USAGE.md).
 
 ---
 
-## Give This To Your Agent
+## Give this to your agent
 
-Copy-paste this entire block into Claude Code, Codex, Cursor, Windsurf, or any AI coding agent:
+Copy-paste this block into Claude Code, Codex, Cursor, Windsurf, or any AI coding agent — it sets up the entire system:
 
-> **Clone and install the cross-model adversarial review system. This gives you bidirectional code review between Claude (Opus 4.7) and Codex (GPT-5.5) — each model acts as the other's devil's advocate.**
+> **Clone and install the cross-model adversarial review system. This gives me bidirectional code review between Claude (Opus 4.7) and Codex (GPT-5.5) — each model acts as the other's devil's advocate.**
 >
 > ```bash
-> git clone https://github.com/Dallionking/cross-model-agents.git
-> cd cross-model-agents
-> node scripts/install.js          # cross-platform (recommended)
-> ./scripts/install.sh             # macOS/Linux bash (legacy)
+> git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
+> cd Cross-Model-Agents
+> node scripts/install.js --yes
 > ```
 >
-> **After install, restart your CLI. Then test with:**
-> - In Claude Code: `Use the codex-reviewer agent to review my code`
-> - In Codex: `@claude-reviewer Review my implementation`
-> - In Claude Code: `/council Should we use X or Y?`
-> - In Claude Code: `/pipeline-doctor` (verify enforcement is wired up)
+> **Then verify with:**
+> ```bash
+> node scripts/pipeline.js doctor
+> ```
 >
-> **What you get:** 10 Claude Code agents, 4 skills, 21 Codex agents, pipeline enforcement (commit gates, post-edit reminders, session checks), anti-slop scoring, UI validation, multi-model council debates, observability dashboard. All cross-model calls use MCP servers with CLI fallback.
-
----
-
-## Why Cross-Model Review Matters
-
-When the same AI model plans, implements, and reviews, it does not challenge its own assumptions. It has systematic blind spots baked into its training. A second model — trained differently, with different biases and pattern preferences — catches what the first one misses.
-
-**Single-model workflow:**
-```
-Plan (Model A) → Implement (Model A) → Review (Model A) → Ship
-                                          ^── same blind spots
-```
-
-**Cross-model workflow:**
-```
-Plan (Model A) → Review (Model B) → Implement → Anti-Slop (Model B scores Model A)
-   → Devil's Advocate (Model B) → Gap Analysis (Model B) → Ship
-```
-
-### Who is this for
-
-- **Solo developers** using AI coding assistants who want a structurally different second opinion.
-- **Teams** enforcing cross-model quality gates in AI-assisted workflows.
-- **Security-sensitive shops** that need an independent reviewer with different training data.
+> **What I get:** 10 Claude Code agents, 21 Codex agents, 4 slash-command skills, pipeline enforcement (commit gates, post-edit reminders, session checks), anti-slop scoring, UI validation, multi-model council debates, observability dashboard. All cross-model calls use MCP servers with CLI fallback.
 
 ---
 
@@ -108,107 +255,6 @@ GPT-5.5 (2026-04-23) is materially better at mid-loop error recovery — `max_ro
 ### Optional: OpenAI's codex-plugin-cc
 
 OpenAI shipped an official `codex-plugin-cc` for Claude Code in 2026. It exposes `/codex:review` and `/codex:adversarial-review`. We bundle it as an **opt-in alternative backend** under `providers.codex_plugin_cc` in `config.json` — set `enabled: true` to route through it.
-
----
-
-## Architecture
-
-```
-                    CLAUDE CODE                                    CODEX CLI
-                    (Opus 4.7 / Sonnet 4.6 / Haiku 4.5)             (GPT-5.5 / GPT-5.4)
-
-        Agents (delegate TO Codex via MCP)              Agents (delegate TO Claude via MCP)
-        ──────────────────────────────────              ──────────────────────────────────
-        codex-reviewer         ── review ──→            claude-reviewer
-        codex-devils-advocate  ── challenge ──→         claude-devils-advocate
-        codex-architect        ── architecture ──→      claude-architect
-        codex-frontend         ── frontend ──→          claude-frontend
-        codex-backend                                   claude-frontend-design  (Opus design strength)
-        codex-gap-analyst      ── gap analysis ──→      claude-marketing        (Opus copy strength)
-        codex-qa               ── QA/testing ──→        claude-gap-analyst
-        codex-security         ── security ──→          claude-security
-        codex-anti-slop        ── slop scoring ──→      claude-qa
-        codex-ui-validator                              anti-slop               (Claude scores Codex)
-                                                        ui-validator
-
-        Skills (Claude Code)                            Orchestration Agents (Codex)
-        ─────────────────────                           ──────────────────────────────
-        /codex-review     iterative review              planner    (auto-sends to Claude review)
-        /council          parallel multi-model debate   executor   (implementation + anti-slop)
-        /delegate         coordinator mode              reviewer   (strict review)
-        /pipeline-doctor  health check + auto-fix       council    (multi-model debate)
-                                                        default / backend / frontend
-```
-
-### Communication Layer
-
-All cross-model calls use **MCP (Model Context Protocol) servers** with CLI fallback when MCP is unavailable:
-
-| Direction | Primary (MCP) | Fallback (CLI) |
-|---|---|---|
-| Claude → Codex | `mcp__codex__codex(prompt, model, sandbox)` | `codex exec -m gpt-5.5 -s read-only ...` |
-| Codex → Claude | `mcp claude_code` via claude-code-mcp | `env -u CLAUDECODE claude -p --model opus ...` |
-
-MCP servers eliminate ~15s cold-start overhead, enable structured JSON responses, and remove the need for `--dangerously-skip-permissions`.
-
-### The Full Pipeline
-
-```
-    Plan
-     │
-     ▼
-  Cross-Model Plan Review (Claude/Codex iterative rounds) ────── BLOCKER
-     │
-     ▼
-  Implement (Executor / Frontend / Backend agents)
-     │
-     ▼
-  Anti-Slop Gate (cross-model, per-file scoring) ────────────── BLOCKER
-     │   Score ≥ 7/10 to pass. Loops up to max_rounds (default 2).
-     │   Per-file fan-out across worker models.
-     │
-     ▼
-  UI Validation (if frontend, cross-model fan-out) ─────────── BLOCKER
-     │   Design quality, accessibility, responsive behavior.
-     │
-     ▼
-  Devil's Advocate (frontier model) ─────────────────────────── BLOCKER
-     │   Challenge every assumption.
-     │
-     ▼
-  Gap Analysis (fallback model) ────────────────────────────── BLOCKER
-     │   Compare spec vs implementation across 10 dimensions.
-     │
-     ▼
-  Commit (only after ALL gates pass — or `bypass --reason`)
-     │
-     ▼
-  GitHub Commit Status (auto-published via `pipeline.js publish`)
-     │
-     ▼
-  Pull Request → Greptile Score ─────────────────────────────── BLOCKER
-     │
-     ▼
-  Merge
-```
-
-### Pipeline Enforcement
-
-Three mechanisms prevent ungated code from being committed:
-
-| Mechanism | Type | What it does |
-|---|---|---|
-| **Post-edit reminder** | Claude Code PostToolUse hook | Injects gate reminder after every file edit |
-| **Commit gate** | Claude Code PreToolUse hook + git pre-commit hook | **Blocks `git commit`** if gates haven't passed |
-| **Session check** | Claude Code Stop hook | Warns when ending a session with incomplete gates |
-
-**Checkpoint:** `.pipeline/state-<branch>.json` (project root, gitignored). Each gate records its result via `pipeline.js gate`. Atomic writes + file locking prevent race conditions when multiple gates run in parallel.
-
-**Logs:** `.pipeline/logs/<date>.jsonl` — structured event log feeding `scripts/dashboard.html`.
-
-**GitHub integration:** `pipeline.js publish` posts each gate as a GitHub commit status (`pipeline/anti_slop`, `pipeline/devils_advocate`, etc.). `pipeline.js fetch` pulls them back.
-
-**Bypass:** Use `pipeline.js bypass --reason "<at least 12 chars>"` (30-minute audited override), or `SKIP_PIPELINE_CHECK=1 PIPELINE_BYPASS_REASON="..." git commit ...`. Every bypass is logged.
 
 ---
 
@@ -515,58 +561,74 @@ Agents gracefully skip unavailable MCPs.
 
 ## Usage
 
-### From Claude Code
+> **For the full day-to-day guide — what each gate does, when to invoke it, troubleshooting, cheatsheets — see [docs/USAGE.md](docs/USAGE.md).**
+
+### Slash commands (Claude Code)
+
+```
+/codex-review           Adversarial review of the current plan (max 5 rounds)
+/council <question>     Parallel Claude/Codex debate (max 3 rounds)
+/delegate               Coordinator mode — spawn worktree-isolated agents
+/pipeline-doctor        Run health check and walk through fixes
+/pipeline-doctor --fix  Same, but apply remediations after confirmation
+```
+
+### Codex agents you can summon from Claude Code
+
+```
+Use the codex-reviewer agent to review my code.
+Use the codex-devils-advocate agent to challenge my approach.
+Use the codex-anti-slop agent to score this file.
+Use the codex-ui-validator agent to score this component.
+Use the codex-security agent to audit this auth flow.
+Use the codex-gap-analyst agent to compare spec vs implementation.
+Use the codex-architect agent for system design review.
+```
+
+### Claude agents you can summon from Codex CLI
+
+```
+@claude-reviewer Review my implementation.
+@claude-devils-advocate Challenge this approach.
+@claude-frontend-design Build this layout.       # Opus design strength
+@claude-marketing Write this launch copy.        # Opus copy strength
+@claude-gap-analyst Compare spec vs implementation.
+@claude-security Audit this auth flow.
+```
+
+### Daily pipeline commands
 
 ```bash
-# Adversarial plan review
-/codex-review
-
-# Multi-model debate
-/council Should we use WebSockets or SSE?
-
-# Delegate everything (you stay coordinator)
-/delegate
-
-# Health-check the enforcement layer
-/pipeline-doctor
-
-# Spawn a Codex-powered agent
-Use the codex-reviewer agent to review my auth.
-Use the codex-security agent to audit this payment flow.
+node pipeline.js doctor                # Health check the install
+node pipeline.js status                # See what gates still need to run
+node pipeline.js status --json         # Machine-readable
+node pipeline.js track src/auth.ts     # Track a changed file
+node pipeline.js log --last 20         # Structured event log
+node pipeline.js reset                 # Clear current-branch state
+node pipeline.js publish               # Post results as GitHub commit statuses
+node pipeline.js fetch                 # Pull GitHub statuses into local state
+node pipeline.js bypass --reason "<≥12 chars>"   # Audited commit-gate override
 ```
 
-### From Codex
-
-```bash
-# Delegate design to Claude (Opus design strength)
-@claude-frontend-design Build the dashboard layout.
-
-# Delegate copy to Claude (Opus copy strength)
-@claude-marketing Write the launch email sequence.
-
-# Get Claude's adversarial review
-@claude-reviewer Review my API plan.
-
-# Run a council
-@council Should we use a queue or direct API for webhooks?
-```
-
-### Example: Full Pipeline in Practice
+### A full session in practice
 
 ```
-1. @planner drafts the plan
-2. Plan sent to Claude for review via MCP (up to 5 rounds)
-3. @executor implements
-4. @anti-slop fans out to Haiku/gpt-5.4-mini workers (one per file)
-   → Score: 6/10 (FAIL) — "wrapper-for-wrapper in auth.ts"
-   → @executor fixes; rescore: 8/10 (PASS)
-5. @claude-devils-advocate (Opus 4.7 xhigh) challenges assumptions
-6. @claude-gap-analyst (Sonnet 4.6) checks for missing requirements
-7. pipeline.js check → exit 0 → git commit unblocked
-8. pipeline.js publish → GitHub commit statuses appear on the PR
-9. Greptile reviews the PR
-10. Merge
+1. git checkout -b feature/auth
+2. Draft a plan in chat.
+3. /codex-review                              → APPROVED after 2 rounds
+4. Implement (Claude does the edits).
+5. Use the codex-anti-slop agent.             → 6/10 fail on auth.ts (wrapper-for-wrapper)
+6. Fix it. Rescore.                           → 8/10 pass
+7. Use the codex-devils-advocate agent.       → completed, no blockers
+8. Use the codex-gap-analyst agent.           → completed, no blockers
+9. node pipeline.js check                     → exit 0
+10. git commit                                → unblocked
+11. node pipeline.js publish                  → statuses appear on PR
+12. Greptile reviews                          → green
+13. Merge.
 ```
+
+See [docs/USAGE.md](docs/USAGE.md) for the full mental model, per-gate details, scoring formulas, the 20 anti-slop + UI patterns, model routing, bypass policy, and a troubleshooting table.
 
 ---
 

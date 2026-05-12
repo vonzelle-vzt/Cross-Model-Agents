@@ -92,16 +92,9 @@ for (const file of tomlFiles) {
     }
   }
 
-  // Validate version field (semver format)
-  if (parsed.version) {
-    if (/^\d+\.\d+\.\d+$/.test(parsed.version)) {
-      ok(`${file}: has valid version '${parsed.version}'`);
-    } else {
-      fail(`${file}: invalid version format '${parsed.version}' (expected semver x.y.z)`);
-    }
-  } else {
-    fail(`${file}: missing 'version' field`);
-  }
+  // NOTE: Codex CLI >= 0.130 rejects unknown top-level `version` field on agent
+  // role definitions, so we no longer require it here. Version information for
+  // Codex-side agents lives in CHANGELOG.md.
 }
 
 // --- 2. Markdown Structure Validation ---
