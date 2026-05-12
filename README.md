@@ -476,8 +476,8 @@ That's it. Agents that consume the config will pick it up automatically.
 ### Cross-Platform Install (recommended)
 
 ```bash
-git clone https://github.com/Dallionking/cross-model-agents.git
-cd cross-model-agents
+git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
+cd Cross-Model-Agents
 node scripts/install.js
 ```
 
