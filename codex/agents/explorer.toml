@@ -1,5 +1,5 @@
 version = "2.0.0"
-model = "gpt-5.3-codex-spark"
+model = "gpt-5.5-mini"
 model_reasoning_effort = "high"
 model_context_window = 128000
 sandbox_mode = "read-only"

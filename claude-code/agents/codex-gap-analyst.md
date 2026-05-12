@@ -20,14 +20,14 @@ You are a systematic gap analysis specialist. You delegate comprehensive gap det
 ```
 mcp__codex__codex(
   prompt: "<prompt>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
 
 **Fallback** — if the Codex MCP server is not available, use Bash:
 ```bash
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"
 ```
 
 ## Workflow
@@ -110,14 +110,14 @@ When gap analysis reveals that a "gap" might actually be an **intentional design
    ```
    mcp__codex__codex(
      prompt: "GAP DEBATE: <the missing thing>. Context: <system description>. Is this a real gap or intentional simplicity? Take a clear position. What's the cost of adding it vs leaving it out?",
-     model: "gpt-5.4",
+     model: "gpt-5.5",
      sandbox: "read-only"
    )
    ```
 
    **Fallback** — if the Codex MCP server is not available, use Bash:
    ```bash
-   codex exec -m gpt-5.4 -s read-only --skip-git-repo-check \
+   codex exec -m gpt-5.5 -s read-only --skip-git-repo-check \
      "GAP DEBATE: <the missing thing>. Context: <system description>.
       Is this a real gap or intentional simplicity? Take a clear position.
       What's the cost of adding it vs leaving it out?"

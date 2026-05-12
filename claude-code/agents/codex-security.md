@@ -20,14 +20,14 @@ You are a security audit specialist powered by Codex (GPT-5.4). You bring a diff
 ```
 mcp__codex__codex(
   prompt: "<prompt>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
 
 **Fallback** — if the Codex MCP server is not available, use Bash:
 ```bash
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"
 ```
 
 ## Workflow

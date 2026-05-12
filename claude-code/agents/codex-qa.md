@@ -21,7 +21,7 @@ For analysis/review:
 ```
 mcp__codex__codex(
   prompt: "<prompt>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
@@ -30,7 +30,7 @@ For generating test files, use `sandbox: "workspace-write"`.
 
 **Fallback** — if the Codex MCP server is not available, use Bash:
 ```bash
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"
 ```
 Use `-s workspace-write` when generating test files.
 
@@ -75,7 +75,7 @@ For each finding, provide:
 ### 3. Generate Tests
 
 If tasked with writing tests:
-- Use Codex to generate test code via `mcp__codex__codex(prompt: "...", model: "gpt-5.4", sandbox: "workspace-write")`
+- Use Codex to generate test code via `mcp__codex__codex(prompt: "...", model: "gpt-5.5", sandbox: "workspace-write")`
 - Apply using `Write` tool to create test files
 - Follow existing test patterns in the project
 

@@ -21,7 +21,7 @@ For review/analysis:
 ```
 mcp__codex__codex(
   prompt: "<prompt>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
@@ -30,7 +30,7 @@ For implementation:
 ```
 mcp__codex__codex(
   prompt: "<prompt>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "workspace-write"
 )
 ```
@@ -38,10 +38,10 @@ mcp__codex__codex(
 **Fallback** — if the Codex MCP server is not available, use Bash:
 ```bash
 # For review/analysis
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"
 
 # For implementation
-cd <project-root> && codex exec -m gpt-5.4 -s workspace-write --skip-git-repo-check "<prompt>"
+cd <project-root> && codex exec -m gpt-5.5 -s workspace-write --skip-git-repo-check "<prompt>"
 ```
 
 ## Workflow

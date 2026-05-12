@@ -167,11 +167,8 @@ if $CODEX_OK; then
   fi
 fi
 
-# Pipeline enforcement scripts
-PIPELINE_DIR="$REPO_DIR/scripts/pipeline"
+# Pipeline enforcement (single Node.js script, no legacy bash since v3.0.0)
 PIPELINE_JS="$REPO_DIR/scripts/pipeline.js"
-
-# Install Node.js pipeline (cross-platform, replaces bash scripts)
 LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$LOCAL_BIN"
 
@@ -181,58 +178,79 @@ if [ -f "$PIPELINE_JS" ]; then
   else
     cp "$PIPELINE_JS" "$LOCAL_BIN/pipeline.js"
   fi
-  ok "Pipeline enforcement (Node.js) → $LOCAL_BIN/pipeline.js"
+  ok "Pipeline CLI installed → $LOCAL_BIN/pipeline.js"
 fi
 
-# Also install legacy bash scripts for backward compatibility
-if [ -d "$PIPELINE_DIR" ]; then
-  chmod +x "$PIPELINE_DIR"/*.sh 2>/dev/null || true
-  for script in "$PIPELINE_DIR"/*.sh; do
-    ln -sf "$script" "$LOCAL_BIN/$(basename "$script")"
-  done
-  ok "Legacy pipeline scripts linked to $LOCAL_BIN"
-fi
-
-# Install git pre-commit hook (uses Node.js pipeline)
+# Install git pre-commit hook (sh shim → Node helper; cross-platform)
 GITHOOKS_DIR="$HOME/.githooks"
 mkdir -p "$GITHOOKS_DIR"
-if [ -f "$GITHOOKS_DIR/pre-commit" ]; then
-  info "Git pre-commit hook already exists — skipping (check manually)"
-else
-  cat > "$GITHOOKS_DIR/pre-commit" << 'HOOKEOF'
-#!/bin/bash
-# Pipeline enforcement pre-commit hook
-# Installed by cross-model-agents installer
-# Override: SKIP_PIPELINE_CHECK=1 git commit ...
 
-if [ "${SKIP_PIPELINE_CHECK:-0}" = "1" ]; then
-  echo "Pipeline check skipped (SKIP_PIPELINE_CHECK=1)"
+# Always (re)write the Node helper
+cat > "$GITHOOKS_DIR/pipeline-precommit.js" << 'JSEOF'
+#!/usr/bin/env node
+// Pipeline pre-commit hook (cross-platform). Installed by cross-model-agents.
+'use strict';
+const { spawnSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+if (process.env.SKIP_PIPELINE_CHECK === '1') {
+  const reason = (process.env.PIPELINE_BYPASS_REASON || '').trim();
+  if (reason.length < 12) {
+    console.error('Pipeline bypass requires PIPELINE_BYPASS_REASON="<at least 12 chars>" (or run: pipeline.js bypass --reason "<text>")');
+    process.exit(1);
+  }
+  console.log(`Pipeline check skipped (reason: ${reason})`);
+  process.exit(0);
+}
+
+const pipeline = path.join(os.homedir(), '.local', 'bin', 'pipeline.js');
+if (!fs.existsSync(pipeline)) process.exit(0);
+const r = spawnSync(process.execPath, [pipeline, 'check'], { stdio: 'inherit' });
+process.exit(r.status === null ? 1 : r.status);
+JSEOF
+chmod +x "$GITHOOKS_DIR/pipeline-precommit.js" 2>/dev/null || true
+
+if [ -f "$GITHOOKS_DIR/pre-commit" ]; then
+  if grep -q "cross-model-agents\|pipeline-precommit.js" "$GITHOOKS_DIR/pre-commit"; then
+    : # ours — overwrite below
+  else
+    warn "Found non-pipeline pre-commit hook at $GITHOOKS_DIR/pre-commit — left untouched"
+    info "Merge manually or back up and re-run installer."
+    PRECOMMIT_SKIP=1
+  fi
+fi
+
+if [ "${PRECOMMIT_SKIP:-0}" != "1" ]; then
+  cat > "$GITHOOKS_DIR/pre-commit" << 'HOOKEOF'
+#!/bin/sh
+# Pipeline enforcement pre-commit hook. Installed by cross-model-agents.
+# Delegates to a Node.js helper for full cross-platform behavior.
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "WARNING: node not on PATH — pipeline check skipped." >&2
   exit 0
 fi
-
-# Use Node.js pipeline if available, fall back to legacy bash
-PIPELINE_JS="$HOME/.local/bin/pipeline.js"
-if [ -f "$PIPELINE_JS" ] && command -v node &>/dev/null; then
-  node "$PIPELINE_JS" check && exit 0
-  echo ""
-  echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."
-  exit 1
-fi
-
-# Legacy fallback
-PIPELINE_CHECK="$HOME/.local/bin/pipeline-check.sh"
-if [ -f "$PIPELINE_CHECK" ]; then
-  "$PIPELINE_CHECK" && exit 0
-  echo ""
-  echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."
-  exit 1
-fi
-
-# No pipeline installed = allow commit
-exit 0
+exec node "$HOME/.githooks/pipeline-precommit.js" "$@"
 HOOKEOF
   chmod +x "$GITHOOKS_DIR/pre-commit"
   ok "Installed git pre-commit hook → $GITHOOKS_DIR/pre-commit"
+fi
+
+# CRITICAL: set core.hooksPath so the hook actually fires
+CURRENT_HOOKS_PATH=$(git config --global core.hooksPath 2>/dev/null || true)
+if [ -z "$CURRENT_HOOKS_PATH" ]; then
+  if git config --global core.hooksPath "$GITHOOKS_DIR" 2>/dev/null; then
+    ok "git core.hooksPath set to $GITHOOKS_DIR"
+  else
+    fail "Failed to set git core.hooksPath — run manually: git config --global core.hooksPath \"$GITHOOKS_DIR\""
+  fi
+elif [ "$CURRENT_HOOKS_PATH" = "$GITHOOKS_DIR" ]; then
+  ok "git core.hooksPath already = $GITHOOKS_DIR"
+else
+  warn "git core.hooksPath is already set to \"$CURRENT_HOOKS_PATH\" — pipeline hook will NOT fire."
+  info "To enable: git config --global core.hooksPath \"$GITHOOKS_DIR\""
 fi
 
 echo ""

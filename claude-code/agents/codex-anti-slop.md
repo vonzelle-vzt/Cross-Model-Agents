@@ -95,7 +95,7 @@ mcp__codex__codex(
    End with:
    VERDICT: PASS (all files >= 7) or VERDICT: FAIL (any file < 7)
    List each file with its score.",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
@@ -103,7 +103,7 @@ mcp__codex__codex(
 **Fallback** — if the Codex MCP server is not available, use Bash:
 
 ```bash
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<same prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<same prompt>"
 ```
 
 ### 4. Report Results

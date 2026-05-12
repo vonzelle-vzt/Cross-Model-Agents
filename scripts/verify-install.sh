@@ -111,28 +111,34 @@ else
   warn "Node.js not found — pipeline.js requires Node.js"
 fi
 
-# Check legacy bash scripts
-PIPELINE_DIR="$REPO_DIR/scripts/pipeline"
-echo ""
-echo -e "${BOLD}Legacy Pipeline Scripts (backward compatibility)${NC}"
-for script in pipeline-init.sh pipeline-gate.sh pipeline-check.sh pipeline-reset.sh track-file-change.sh post-edit-reminder.sh pre-commit-gate.sh stop-gate.sh; do
-  if [ -x "$PIPELINE_DIR/$script" ]; then
-    ok "$script"
-  elif [ -f "$PIPELINE_DIR/$script" ]; then
-    warn "$script (exists but not executable)"
-  else
-    warn "$script (not found — using Node.js pipeline instead)"
-  fi
-done
-echo ""
-
-# Check hooks
+# Check git hooks
 echo -e "${BOLD}Git Hooks${NC}"
 if [ -x "$HOME/.githooks/pre-commit" ]; then
-  ok "pre-commit hook installed"
+  if grep -q "cross-model-agents\|pipeline-precommit.js" "$HOME/.githooks/pre-commit"; then
+    ok "pre-commit hook installed (cross-model-agents)"
+  else
+    warn "pre-commit hook present but not ours — leaving untouched"
+  fi
 else
   fail "pre-commit hook not installed"
 fi
+if [ -f "$HOME/.githooks/pipeline-precommit.js" ]; then
+  ok "pipeline-precommit.js helper present"
+else
+  fail "pipeline-precommit.js helper missing"
+fi
+
+# Verify git core.hooksPath is set to ~/.githooks
+HOOKS_PATH=$(git config --global core.hooksPath 2>/dev/null || true)
+if [ -z "$HOOKS_PATH" ]; then
+  fail "git core.hooksPath NOT set — pre-commit hook will NOT fire"
+  warn "Run: git config --global core.hooksPath \"$HOME/.githooks\""
+elif [ "$HOOKS_PATH" = "$HOME/.githooks" ]; then
+  ok "git core.hooksPath = $HOOKS_PATH"
+else
+  warn "git core.hooksPath = $HOOKS_PATH (expected $HOME/.githooks)"
+fi
+
 if [ -x "$HOME/.githooks/post-commit" ]; then
   ok "post-commit hook installed (GitNexus)"
 fi
@@ -146,20 +152,10 @@ echo -e "${BOLD}Claude Code Hooks (settings.json)${NC}"
 SETTINGS="$HOME/.claude/settings.json"
 if [ -f "$SETTINGS" ]; then
   # Check for either Node.js pipeline or legacy bash hooks
-  if grep -q "pipeline.js\|pre-commit-gate.sh" "$SETTINGS"; then
-    ok "Commit gate hook configured"
+  if grep -q "pipeline.js" "$SETTINGS"; then
+    ok "Pipeline hooks configured (pipeline.js detected in settings.json)"
   else
-    fail "Commit gate hook NOT configured in settings.json"
-  fi
-  if grep -q "pipeline.js\|post-edit-reminder.sh" "$SETTINGS"; then
-    ok "Post-edit reminder hook configured"
-  else
-    fail "Post-edit reminder hook NOT configured in settings.json"
-  fi
-  if grep -q "pipeline.js\|stop-gate.sh" "$SETTINGS"; then
-    ok "Stop gate hook configured"
-  else
-    fail "Stop gate hook NOT configured in settings.json"
+    fail "Pipeline hooks NOT configured in settings.json — see install instructions"
   fi
 else
   fail "settings.json not found"

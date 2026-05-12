@@ -56,7 +56,7 @@ Every agent must start with a `#` heading on line 1. The heading is used by Clau
 - **Format:**
 
 ```toml
-model = "gpt-5.4"
+model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"  # or "workspace-write"
 developer_instructions = """

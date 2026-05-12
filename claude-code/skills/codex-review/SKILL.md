@@ -30,7 +30,7 @@ REVIEW_FILE="/tmp/codex-review-${UUID}.md"
 
 ### Step 2: Determine Model & Context
 
-- Default model: `gpt-5.4`
+- Default model: `gpt-5.5`
 - If user specified a model override (e.g., `/codex-review o4-mini`), use that model instead
 - Detect if we're inside a git repo: `git rev-parse --git-dir 2>/dev/null`
 - If NOT in a git repo and using CLI fallback, add `--skip-git-repo-check` to all `codex` commands
@@ -65,12 +65,12 @@ For each finding:
 End your review with exactly one of:
 VERDICT: APPROVED
 VERDICT: REVISE",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
 
-> **CLI fallback:** If the Codex MCP server is unavailable, fall back to: `codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"`
+> **CLI fallback:** If the Codex MCP server is unavailable, fall back to: `codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"`
 
 **Important notes:**
 - The Codex MCP server authenticates via your Pro/MAX subscription (no OPENAI_API_KEY needed)

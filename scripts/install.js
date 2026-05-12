@@ -24,21 +24,35 @@ const IS_WIN = process.platform === 'win32';
 // Parse flags
 const args = process.argv.slice(2);
 let USE_COPY = false;
+let UNATTENDED = false;       // --yes / -y
+let MINIMAL = false;          // --minimal: agents + hook only, skip all MCP prompts
+let SKIP_HOOK = false;        // --skip-hook
+const FORCE_MCPS = new Set(); // --with codex,claude-code-mcp
 
-for (const arg of args) {
-  if (arg === '--copy') {
-    USE_COPY = true;
+for (let i = 0; i < args.length; i++) {
+  const arg = args[i];
+  if (arg === '--copy') USE_COPY = true;
+  else if (arg === '--yes' || arg === '-y' || arg === '--unattended') UNATTENDED = true;
+  else if (arg === '--minimal') { MINIMAL = true; UNATTENDED = true; }
+  else if (arg === '--skip-hook') SKIP_HOOK = true;
+  else if (arg === '--with' && args[i + 1]) {
+    for (const m of args[i + 1].split(',')) FORCE_MCPS.add(m.trim());
+    i++;
   } else if (arg === '--help' || arg === '-h') {
-    console.log('Usage: node install.js [--copy]');
-    console.log('  --copy: Use copies instead of symlinks (default: symlinks)');
+    console.log('Usage: node install.js [options]');
+    console.log('  --copy            Use copies instead of symlinks');
+    console.log('  --yes, -y         Unattended: accept defaults for all prompts');
+    console.log('  --minimal         Unattended + skip all MCP server installs');
+    console.log('  --skip-hook       Do not install the git pre-commit hook');
+    console.log('  --with <list>     Pre-approve specific MCPs (comma-sep): codex,claude-code-mcp,exa,...');
+    console.log('  --help, -h        Show this help');
     process.exit(0);
   }
 }
 
-// On Windows, default to copy because symlinks require admin privileges
-if (IS_WIN) {
-  USE_COPY = true;
-}
+// On Windows, default to copy because file symlinks require admin / Developer Mode.
+// Directories still use junction (no admin needed) inside installFile().
+if (IS_WIN) USE_COPY = true;
 
 // ─────────────────────────────────────────────────────────────
 // ANSI Colors
@@ -77,12 +91,30 @@ function question(prompt) {
   });
 }
 
-async function ask(prompt) {
+async function ask(prompt, opts = {}) {
+  // opts.mcpName for selective auto-approve via --with
+  if (MINIMAL) return false;
+  if (UNATTENDED) {
+    if (opts.mcpName && FORCE_MCPS.has(opts.mcpName)) {
+      console.log(`${YELLOW}?${NC} ${prompt} [auto: yes]`);
+      return true;
+    }
+    if (opts.defaultYes) {
+      console.log(`${YELLOW}?${NC} ${prompt} [auto: yes]`);
+      return true;
+    }
+    console.log(`${YELLOW}?${NC} ${prompt} [auto: no]`);
+    return false;
+  }
   const ans = await question(`${YELLOW}?${NC} ${prompt} [y/N] `);
   return /^[Yy]/.test(ans.trim());
 }
 
-async function askInput(prompt) {
+async function askInput(prompt, opts = {}) {
+  if (UNATTENDED) {
+    if (opts.env && process.env[opts.env]) return process.env[opts.env];
+    return '';
+  }
   const ans = await question(`  ${prompt}`);
   return ans.trim();
 }
@@ -318,7 +350,7 @@ async function main() {
     warn('Only one CLI detected. Cross-model features require both.');
     console.log('  You can still install agents for the available CLI.');
     console.log('');
-    const cont = await ask('Continue with partial install?');
+    const cont = await ask('Continue with partial install?', { defaultYes: true });
     if (!cont) {
       console.log('Exiting. Install both CLIs and try again.');
       rl.close();
@@ -406,95 +438,120 @@ async function main() {
     ok(`${method} ${codexAgentCount} Codex agents -> ${codexAgentsDir}`);
   }
 
-  // --- Pipeline enforcement scripts ---
+  // --- Pipeline enforcement (single Node.js script, no legacy bash) ---
   const pipelineJs = path.join(REPO_DIR, 'scripts', 'pipeline.js');
-  const pipelineDir = path.join(REPO_DIR, 'scripts', 'pipeline');
   const localBin = path.join(HOME, '.local', 'bin');
   mkdirp(localBin);
 
-  // Install Node.js pipeline
   if (fs.existsSync(pipelineJs)) {
     installFile(pipelineJs, path.join(localBin, 'pipeline.js'));
-    ok(`Pipeline enforcement (Node.js) -> ${path.join(localBin, 'pipeline.js')}`);
+    ok(`Pipeline CLI installed -> ${path.join(localBin, 'pipeline.js')}`);
   }
 
-  // Install legacy bash scripts
-  if (fs.existsSync(pipelineDir)) {
-    const legacyScripts = globFiles(pipelineDir, '.sh');
-    for (const script of legacyScripts) {
-      installFile(script, path.join(localBin, path.basename(script)));
-      // On Unix, make the installed copy/symlink executable
-      if (!IS_WIN) {
-        try {
-          fs.chmodSync(path.join(localBin, path.basename(script)), 0o755);
-        } catch {
-          // ignore
-        }
-        // Also ensure source is executable
-        try {
-          fs.chmodSync(script, 0o755);
-        } catch {
-          // ignore
-        }
-      }
-    }
-    ok(`Legacy pipeline scripts linked to ${localBin}`);
-  }
-
-  // --- Git pre-commit hook ---
+  // --- Git pre-commit hook (cross-platform, Node-only) ---
+  if (SKIP_HOOK) {
+    info('Pre-commit hook installation skipped (--skip-hook).');
+    console.log('');
+    // Fall through to MCP phases below
+  } else {
   const githooksDir = path.join(HOME, '.githooks');
   mkdirp(githooksDir);
   const preCommitPath = path.join(githooksDir, 'pre-commit');
+  const preCommitJsPath = path.join(githooksDir, 'pipeline-precommit.js');
+
+  // Always (re)write the JS helper so it points at the right pipeline.js
+  const jsHelper = [
+    '#!/usr/bin/env node',
+    '// Pipeline pre-commit hook (cross-platform). Installed by cross-model-agents.',
+    "'use strict';",
+    "const { spawnSync } = require('child_process');",
+    "const path = require('path');",
+    "const fs = require('fs');",
+    "const os = require('os');",
+    '',
+    "// Audited bypass — SKIP_PIPELINE_CHECK=1 must be paired with PIPELINE_BYPASS_REASON",
+    "if (process.env.SKIP_PIPELINE_CHECK === '1') {",
+    "  const reason = (process.env.PIPELINE_BYPASS_REASON || '').trim();",
+    "  if (reason.length < 12) {",
+    "    console.error('Pipeline bypass requires PIPELINE_BYPASS_REASON=\"<at least 12 chars>\" (or run: pipeline.js bypass --reason \"<text>\")');",
+    "    process.exit(1);",
+    "  }",
+    "  console.log(`Pipeline check skipped (reason: ${reason})`);",
+    "  process.exit(0);",
+    "}",
+    '',
+    "const pipeline = path.join(os.homedir(), '.local', 'bin', 'pipeline.js');",
+    "if (!fs.existsSync(pipeline)) {",
+    "  // No pipeline installed = allow commit (defensive: don't block users without the tool)",
+    "  process.exit(0);",
+    "}",
+    "const r = spawnSync(process.execPath, [pipeline, 'check'], { stdio: 'inherit' });",
+    "process.exit(r.status === null ? 1 : r.status);",
+    '',
+  ].join('\n');
+
+  fs.writeFileSync(preCommitJsPath, jsHelper);
+  if (!IS_WIN) {
+    try { fs.chmodSync(preCommitJsPath, 0o755); } catch { /* ignore */ }
+  }
+
+  // Pre-commit shim — bash on Unix, posix `#!/bin/sh` everywhere (Git for Windows ships sh)
+  const hookContent = [
+    '#!/bin/sh',
+    '# Pipeline enforcement pre-commit hook. Installed by cross-model-agents.',
+    '# Delegates to a Node.js helper for full cross-platform behavior.',
+    '',
+    'if ! command -v node >/dev/null 2>&1; then',
+    '  echo "WARNING: node not on PATH — pipeline check skipped." >&2',
+    '  exit 0',
+    'fi',
+    `exec node "$HOME/.githooks/pipeline-precommit.js" "$@"`,
+    '',
+  ].join('\n');
 
   if (fs.existsSync(preCommitPath)) {
-    info('Git pre-commit hook already exists -- skipping (check manually)');
-  } else {
-    const hookContent = [
-      '#!/bin/bash',
-      '# Pipeline enforcement pre-commit hook',
-      '# Installed by cross-model-agents installer',
-      '# Override: SKIP_PIPELINE_CHECK=1 git commit ...',
-      '',
-      'if [ "${SKIP_PIPELINE_CHECK:-0}" = "1" ]; then',
-      '  echo "Pipeline check skipped (SKIP_PIPELINE_CHECK=1)"',
-      '  exit 0',
-      'fi',
-      '',
-      '# Use Node.js pipeline if available, fall back to legacy bash',
-      'PIPELINE_JS="$HOME/.local/bin/pipeline.js"',
-      'if [ -f "$PIPELINE_JS" ] && command -v node &>/dev/null; then',
-      '  node "$PIPELINE_JS" check && exit 0',
-      '  echo ""',
-      '  echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."',
-      '  exit 1',
-      'fi',
-      '',
-      '# Legacy fallback',
-      'PIPELINE_CHECK="$HOME/.local/bin/pipeline-check.sh"',
-      'if [ -f "$PIPELINE_CHECK" ]; then',
-      '  "$PIPELINE_CHECK" && exit 0',
-      '  echo ""',
-      '  echo "Override: SKIP_PIPELINE_CHECK=1 git commit ..."',
-      '  exit 1',
-      'fi',
-      '',
-      '# No pipeline installed = allow commit',
-      'exit 0',
-      '',
-    ].join('\n');
-
-    fs.writeFileSync(preCommitPath, hookContent, { mode: 0o755 });
-    if (!IS_WIN) {
-      try {
-        fs.chmodSync(preCommitPath, 0o755);
-      } catch {
-        // ignore
-      }
+    // Detect whether existing hook is ours; if so, replace cleanly.
+    const existing = fs.readFileSync(preCommitPath, 'utf8');
+    if (existing.includes('cross-model-agents') || existing.includes('pipeline-precommit.js')) {
+      fs.writeFileSync(preCommitPath, hookContent);
+      ok('Updated existing cross-model-agents pre-commit hook');
+    } else {
+      warn(`Found non-pipeline pre-commit hook at ${preCommitPath} — left untouched`);
+      info(`Merge manually or back up and re-run installer.`);
     }
+  } else {
+    fs.writeFileSync(preCommitPath, hookContent);
     ok(`Installed git pre-commit hook -> ${preCommitPath}`);
+  }
+  if (!IS_WIN) {
+    try { fs.chmodSync(preCommitPath, 0o755); } catch { /* ignore */ }
+  }
+
+  // CRITICAL: set core.hooksPath so the hook actually fires
+  try {
+    const currentHooksPath = execSync('git config --global core.hooksPath', { stdio: 'pipe' })
+      .toString().trim();
+    if (currentHooksPath && path.resolve(currentHooksPath) !== path.resolve(githooksDir)) {
+      warn(`git core.hooksPath is already set to "${currentHooksPath}" — pipeline hook will NOT fire.`);
+      info(`To enable: git config --global core.hooksPath "${githooksDir}"`);
+    } else if (!currentHooksPath) {
+      execSync(`git config --global core.hooksPath "${githooksDir}"`, { stdio: 'pipe' });
+      ok(`git core.hooksPath set to ${githooksDir}`);
+    } else {
+      ok(`git core.hooksPath already = ${githooksDir}`);
+    }
+  } catch {
+    // core.hooksPath unset throws on read; set it
+    try {
+      execSync(`git config --global core.hooksPath "${githooksDir}"`, { stdio: 'pipe' });
+      ok(`git core.hooksPath set to ${githooksDir}`);
+    } catch (e) {
+      fail(`Failed to set git core.hooksPath — run manually: git config --global core.hooksPath "${githooksDir}"`);
+    }
   }
 
   console.log('');
+  } // end if !SKIP_HOOK
 
   // ─────────────────────────────────────────────────────────
   // Phase 3: Optional CLI Tools
@@ -511,7 +568,7 @@ async function main() {
   } else {
     console.log('  agent-browser -- Browser automation for UI validation gate');
     console.log('  The UI validator uses this to capture screenshots and test responsive layouts.');
-    if (await ask('Install agent-browser CLI?')) {
+    if (await ask('Install agent-browser CLI?', { mcpName: 'agent-browser' })) {
       info('Installing agent-browser...');
       try {
         execSync('npm install -g agent-browser', { stdio: 'inherit' });
@@ -551,7 +608,7 @@ async function main() {
   // codex-mcp-server
   console.log('  codex-mcp-server -- Wraps Codex CLI as an MCP server');
   console.log('  Allows Claude Code agents to call Codex via structured MCP tool calls.');
-  if (await ask('Install codex-mcp-server?')) {
+  if (await ask('Install codex-mcp-server?', { mcpName: 'codex' })) {
     installMcpClaude('codex', 'npx', '-y codex-mcp-server');
     mcpInstalled.push('codex-mcp-server');
   }
@@ -560,7 +617,7 @@ async function main() {
   // claude-code-mcp
   console.log('  claude-code-mcp -- Wraps Claude Code as an MCP server');
   console.log('  Allows Codex agents to call Claude via structured MCP tool calls.');
-  if (await ask('Install claude-code-mcp?')) {
+  if (await ask('Install claude-code-mcp?', { mcpName: 'claude-code-mcp' })) {
     if (codexOk) {
       info('For Codex, add to ~/.codex/config.toml:');
       console.log('    [mcp_servers."claude-code-mcp"]');
@@ -579,7 +636,7 @@ async function main() {
   // Auggie
   console.log('  Auggie (codebase-retrieval) -- Semantic codebase search');
   console.log('  Indexes your entire repo. Finds cross-file references grep misses.');
-  if (await ask('Install Auggie MCP?')) {
+  if (await ask('Install Auggie MCP?', { mcpName: 'auggie' })) {
     if (commandExists('auggie')) {
       ok('auggie CLI already installed');
       installMcpClaude('codebase-retrieval', 'auggie', '--mcp --mcp-auto-workspace');
@@ -594,7 +651,7 @@ async function main() {
   // GitNexus
   console.log('  GitNexus -- Dependency graphs and impact analysis');
   console.log('  Maps what depends on what. Shows what breaks when you change something.');
-  if (await ask('Install GitNexus MCP?')) {
+  if (await ask('Install GitNexus MCP?', { mcpName: 'gitnexus' })) {
     installMcpClaude('gitnexus', 'npx', '-y gitnexus@latest mcp');
     printCodexNote('gitnexus');
     mcpInstalled.push('gitnexus');
@@ -609,8 +666,8 @@ async function main() {
   // EXA
   console.log('  EXA -- Semantic web search for research and patterns');
   console.log('  Agents use this to research design patterns, best practices, and real-world examples.');
-  if (await ask('Install EXA MCP?')) {
-    const exaKey = await askInput('Enter your EXA API key (get one at https://exa.ai): ');
+  if (await ask('Install EXA MCP?', { mcpName: 'exa' })) {
+    const exaKey = await askInput('Enter your EXA API key (get one at https://exa.ai): ', { env: 'EXA_API_KEY' });
     if (exaKey) {
       installMcpClaude_url('exa', 'https://mcp.exa.ai/mcp', 'Authorization', `Bearer ${exaKey}`);
       info('For Codex, add to ~/.codex/config.toml:');
@@ -629,7 +686,7 @@ async function main() {
   // Ref
   console.log('  Ref -- Documentation search across frameworks and libraries');
   console.log('  Free, no API key needed.');
-  if (await ask('Install Ref MCP?')) {
+  if (await ask('Install Ref MCP?', { mcpName: 'ref' })) {
     installMcpClaude_url('ref', 'https://api.ref.tools/mcp?apiKey=ref-a867514653e7d2c73d9e');
     info('For Codex, add to ~/.codex/config.toml:');
     console.log('    [mcp_servers."ref"]');
@@ -641,7 +698,7 @@ async function main() {
   // Context7
   console.log('  Context7 -- Library documentation lookup');
   console.log('  Free, no API key needed. Gives agents access to framework docs.');
-  if (await ask('Install Context7 MCP?')) {
+  if (await ask('Install Context7 MCP?', { mcpName: 'context7' })) {
     installMcpClaude('context7', 'npx', '-y @upstash/context7-mcp');
     printCodexNote('context7');
     mcpInstalled.push('context7');
@@ -651,8 +708,8 @@ async function main() {
   // Firecrawl
   console.log('  Firecrawl -- Web scraping and crawling');
   console.log('  Agents use this to scrape documentation, research URLs, and crawl sites.');
-  if (await ask('Install Firecrawl MCP?')) {
-    const fcKey = await askInput('Enter your Firecrawl API key (get one at https://firecrawl.dev): ');
+  if (await ask('Install Firecrawl MCP?', { mcpName: 'firecrawl' })) {
+    const fcKey = await askInput('Enter your Firecrawl API key (get one at https://firecrawl.dev): ', { env: 'FIRECRAWL_API_KEY' });
     if (fcKey) {
       installMcpClaude('firecrawl', 'npx', '-y firecrawl-mcp');
       info(`Set the env var: export FIRECRAWL_API_KEY=${fcKey}`);
@@ -671,8 +728,8 @@ async function main() {
   // Greptile
   console.log('  Greptile -- AI-powered code review and PR scoring');
   console.log('  Used in the PR review gate at the end of the pipeline.');
-  if (await ask('Install Greptile MCP?')) {
-    const greptileKey = await askInput('Enter your Greptile API key (get one at https://greptile.com): ');
+  if (await ask('Install Greptile MCP?', { mcpName: 'greptile' })) {
+    const greptileKey = await askInput('Enter your Greptile API key (get one at https://greptile.com): ', { env: 'GREPTILE_API_KEY' });
     if (greptileKey) {
       installMcpClaude_url('greptile', 'https://api.greptile.com/mcp', 'Authorization', `Bearer ${greptileKey}`);
       info('For Codex, add to ~/.codex/config.toml:');
@@ -695,7 +752,7 @@ async function main() {
 
   console.log('  shadcn/ui MCP -- Browse and discover UI components');
   console.log('  Free, no API key. Lets agents browse the shadcn/ui component library.');
-  if (await ask('Install shadcn/ui MCP?')) {
+  if (await ask('Install shadcn/ui MCP?', { mcpName: 'shadcn-ui' })) {
     installMcpClaude('shadcn-ui', 'npx', '-y @jpisnice/shadcn-ui-mcp-server');
     printCodexNote('shadcn-ui');
     mcpInstalled.push('shadcn-ui');
@@ -709,7 +766,7 @@ async function main() {
 
   console.log('  Sequential Thinking -- Structured multi-step reasoning');
   console.log('  Free, no API key. Helps agents with complex multi-step analysis.');
-  if (await ask('Install Sequential Thinking MCP?')) {
+  if (await ask('Install Sequential Thinking MCP?', { mcpName: 'sequential-thinking' })) {
     installMcpClaude('sequential-thinking', 'npx', '-y @modelcontextprotocol/server-sequential-thinking');
     printCodexNote('sequential-thinking');
     mcpInstalled.push('sequential-thinking');

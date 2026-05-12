@@ -37,14 +37,14 @@ Call the Codex MCP server (from the project root so Codex has repo context):
 ```
 mcp__codex__codex(
   prompt: "<implementation prompt with full context>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "workspace-write"
 )
 ```
 
 **Fallback** — if the Codex MCP server is not available, use Bash:
 ```bash
-cd <project-root> && codex exec -m gpt-5.4 -s workspace-write --skip-git-repo-check "<implementation prompt with full context>"
+cd <project-root> && codex exec -m gpt-5.5 -s workspace-write --skip-git-repo-check "<implementation prompt with full context>"
 ```
 
 For multi-step implementations, use `codex --resume <session>`:
@@ -79,8 +79,8 @@ After applying changes:
 
 ```
 1. Read relevant files (Read, Glob, Grep)
-2. Call: mcp__codex__codex(prompt: "<prompt>", model: "gpt-5.4", sandbox: "workspace-write")
-   Fallback: cd <repo> && codex exec -m gpt-5.4 -s workspace-write --skip-git-repo-check "<prompt>"
+2. Call: mcp__codex__codex(prompt: "<prompt>", model: "gpt-5.5", sandbox: "workspace-write")
+   Fallback: cd <repo> && codex exec -m gpt-5.5 -s workspace-write --skip-git-repo-check "<prompt>"
 3. Parse Codex response
 4. Apply via Edit/Write
 5. Follow-up with codex --resume <session> if needed

@@ -1,22 +1,46 @@
 {
+  "$schema": "./docs/config-schema.json",
+  "version": "3.0.0",
+  "maintainer": {
+    "name": "VZT Tech Consulting",
+    "contact": "vonzelle@vzttechconsulting.com"
+  },
   "providers": {
     "codex": {
       "name": "Codex (OpenAI)",
-      "model": "gpt-5.4",
-      "fast_model": "gpt-5.3-codex-spark",
+      "model": "gpt-5.5",
+      "fallback_model": "gpt-5.4",
+      "worker_model": "gpt-5.4-mini",
       "reasoning_effort": "xhigh",
       "mcp_server": "codex",
       "mcp_tool": "mcp__codex__codex",
       "default_sandbox": "read-only",
-      "role": "adversarial_reviewer"
+      "role": "adversarial_reviewer",
+      "max_context": 400000,
+      "notes": "GPT-5.5 released 2026-04-23 — better mid-loop error recovery, 400K ctx. GPT-5.4 retained as cheaper fallback. gpt-5.4-mini used for embarrassingly-parallel fan-out (per-file anti-slop)."
     },
     "claude": {
       "name": "Claude (Anthropic)",
-      "model": "opus",
+      "model": "claude-opus-4-7",
+      "fallback_model": "claude-sonnet-4-6",
+      "worker_model": "claude-haiku-4-5",
       "reasoning_effort": "xhigh",
       "mcp_server": "claude_code",
       "mcp_tool": "mcp__claude-code-mcp__claude_code",
-      "role": "primary_implementer"
+      "role": "primary_implementer",
+      "max_context": 1000000,
+      "max_output": 128000,
+      "supports_task_budgets": true,
+      "notes": "Opus 4.7 released 2026-04-16 — new tokenizer (~1.35x tokens), task budgets, xhigh effort tier. Sonnet 4.6 = workhorse. Haiku 4.5 = fan-out worker (200K ctx, near-frontier per dollar)."
+    },
+    "codex_plugin_cc": {
+      "name": "Codex Plugin for Claude Code (OpenAI official)",
+      "model": "gpt-5.5",
+      "mcp_server": "codex-plugin-cc",
+      "mcp_tool": "mcp__codex-plugin-cc__review",
+      "role": "alt_adversarial_reviewer",
+      "enabled": false,
+      "notes": "OpenAI's official codex-plugin-cc — opt-in alternative to codex-mcp-server. Provides /codex:review and /codex:adversarial-review primitives. Set enabled=true and matching mcp_server entry to use."
     }
   },
   "routing": {
@@ -24,18 +48,63 @@
     "adversarial_review": "codex",
     "security_review": "codex",
     "council_participants": ["claude", "codex"],
-    "note": "To add a new provider (e.g. Gemini), add it to providers{} and reference it in routing"
+    "gates": {
+      "anti_slop": {
+        "scorer": "codex",
+        "tier": "worker",
+        "fanout": true,
+        "task_budget": 4000,
+        "reasoning_effort": "medium",
+        "note": "Per-file scoring is embarrassingly parallel — fan out one worker per file."
+      },
+      "ui_validation": {
+        "scorer": "codex",
+        "tier": "worker",
+        "fanout": true,
+        "task_budget": 5000,
+        "reasoning_effort": "medium"
+      },
+      "devils_advocate": {
+        "scorer": "codex",
+        "tier": "frontier",
+        "fanout": false,
+        "task_budget": 12000,
+        "reasoning_effort": "xhigh",
+        "note": "Frontier reasoning matters here — keep on the top-tier model."
+      },
+      "gap_analysis": {
+        "scorer": "codex",
+        "tier": "fallback",
+        "fanout": false,
+        "task_budget": 8000,
+        "reasoning_effort": "high",
+        "note": "10-dimension comparison doesn't need frontier — Sonnet/GPT-5.4 sufficient."
+      },
+      "architect": {
+        "scorer": "codex",
+        "tier": "frontier",
+        "fanout": false,
+        "task_budget": 10000,
+        "reasoning_effort": "xhigh"
+      }
+    },
+    "note": "tier maps to provider.{tier}_model: 'frontier'->model, 'fallback'->fallback_model, 'worker'->worker_model. Adding a new provider: add to providers{} and reference in routing/gates."
   },
   "scoring": {
     "pass_threshold": 7,
-    "max_rounds": 3,
+    "max_rounds": 2,
     "critical_weight": 3,
     "moderate_weight": 1,
-    "minor_weight": 0.5
+    "minor_weight": 0.5,
+    "score_min": 0,
+    "score_max": 10,
+    "note": "max_rounds reduced 3->2 in v3.0.0: GPT-5.5 mid-task self-correction means round 3 rarely changes verdicts."
   },
   "concurrency": {
-    "max_parallel_claude": 2,
-    "max_parallel_codex": 3
+    "max_parallel_claude": 3,
+    "max_parallel_codex": 4,
+    "max_fanout_workers": 8,
+    "note": "max_parallel_claude raised 2->3 to absorb Opus 4.7 tokenizer overhead (~1.35x). max_fanout_workers caps Haiku/gpt-5.4-mini parallelism for per-file gates."
   },
   "mcp_servers": {
     "codex": {
@@ -49,11 +118,24 @@
       "command": "npx",
       "args": ["-y", "@anthropic-ai/claude-code-mcp@latest"],
       "description": "Wraps Claude Code as MCP server for cross-model calls"
+    },
+    "codex-plugin-cc": {
+      "name": "codex-plugin-cc",
+      "command": "npx",
+      "args": ["-y", "@openai/codex-plugin-cc@latest"],
+      "description": "Official OpenAI Codex plugin for Claude Code (alternative to codex-mcp-server)",
+      "enabled": false
     }
   },
   "github": {
     "status_context_prefix": "pipeline/",
     "publish_url": "https://github.com",
     "note": "Used by `pipeline.js publish` to post gate results as GitHub commit statuses"
+  },
+  "bypass": {
+    "require_reason": true,
+    "min_reason_length": 12,
+    "log_all_bypasses": true,
+    "note": "SKIP_PIPELINE_CHECK=1 alone no longer bypasses — set PIPELINE_BYPASS_REASON='<text>' or use `pipeline.js bypass --reason '<text>'`. All bypasses are logged."
   }
 }

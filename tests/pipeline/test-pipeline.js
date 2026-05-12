@@ -316,6 +316,155 @@ test('report shows "no active checkpoint" when empty', () => {
 
 cleanup();
 
+console.log('\n=== Score Bounds Tests (v3.0.0) ===\n');
+
+test('gate rejects score below 0', () => {
+  cleanup();
+  run('init');
+  const result = run('gate anti_slop passed -1 1');
+  assert(result.exitCode !== 0, 'Should fail');
+  assert(result.stderr.includes('out of bounds'), result.stderr);
+});
+
+test('gate rejects score above 10', () => {
+  const result = run('gate anti_slop passed 11 1');
+  assert(result.exitCode !== 0, 'Should fail');
+  assert(result.stderr.includes('out of bounds'), result.stderr);
+});
+
+test('gate accepts score 0', () => {
+  cleanup();
+  run('init');
+  const result = run('gate anti_slop failed 0 1');
+  assertEqual(result.exitCode, 0);
+});
+
+test('gate accepts score 10', () => {
+  cleanup();
+  run('init');
+  const result = run('gate anti_slop passed 10 1');
+  assertEqual(result.exitCode, 0);
+});
+
+cleanup();
+
+console.log('\n=== Status JSON Tests (v3.0.0) ===\n');
+
+test('status --json returns active:false when no checkpoint', () => {
+  cleanup();
+  const result = run('status --json');
+  const json = JSON.parse(result.stdout);
+  assertEqual(json.active, false);
+});
+
+test('status --json returns full state when active', () => {
+  run('init');
+  run('track src/api/handler.py');
+  run('gate anti_slop passed 9 1');
+  const result = run('status --json');
+  const json = JSON.parse(result.stdout);
+  assert(json.gates && json.gates.anti_slop, 'Missing gates.anti_slop');
+  assertEqual(json.gates.anti_slop.status, 'passed');
+  assert(Array.isArray(json.missing), 'Missing missing[] array');
+});
+
+test('report --json is an alias of status --json', () => {
+  const result = run('report --json');
+  const json = JSON.parse(result.stdout);
+  assert(json.gates, 'report --json should return state shape');
+});
+
+cleanup();
+
+console.log('\n=== Bypass Tests (v3.0.0) ===\n');
+
+test('bypass requires --reason', () => {
+  cleanup();
+  run('init');
+  const result = run('bypass');
+  assert(result.exitCode !== 0, 'Should fail without --reason');
+  assert(result.stderr.includes('--reason'), result.stderr);
+});
+
+test('bypass rejects short reason', () => {
+  const result = run('bypass --reason "too short"');
+  assert(result.exitCode !== 0, 'Should reject < 12 chars');
+});
+
+test('bypass with valid reason allows commit', () => {
+  cleanup();
+  run('init');
+  run('track src/auth.ts');
+  // Block first
+  const blocked = run('check');
+  assertEqual(blocked.exitCode, 2);
+  // Bypass
+  const bypassResult = run('bypass --reason "hotfix for prod outage 2026-05-12"');
+  assertEqual(bypassResult.exitCode, 0);
+  assert(bypassResult.stdout.includes('bypass active'), bypassResult.stdout);
+  // Check should pass now
+  const checkResult = run('check');
+  assertEqual(checkResult.exitCode, 0);
+  assert(checkResult.stdout.includes('bypassed'), checkResult.stdout);
+});
+
+cleanup();
+
+console.log('\n=== Violations Storage Tests (v3.0.0) ===\n');
+
+test('gate --violations stores full violation detail', () => {
+  cleanup();
+  run('init');
+  const fs2 = require('fs');
+  const path2 = require('path');
+  const tmpPath = path2.join(ROOT, '.tmp-violations.json');
+  fs2.writeFileSync(tmpPath, JSON.stringify({
+    verdict: 'PASS',
+    overall_score: 8.5,
+    round: 1,
+    files: [{ path: 'src/auth.ts', score: 8.5, violations: [
+      { line: 42, pattern: 3, pattern_name: 'Comment-Restates-Code', severity: 'minor' }
+    ]}]
+  }));
+  try {
+    const result = run(`gate anti_slop passed 8.5 1 --violations "${tmpPath}"`);
+    assertEqual(result.exitCode, 0);
+    const status = JSON.parse(run('status --json').stdout);
+    assert(status.gates.anti_slop.violations, 'Violations not stored');
+    assertEqual(status.gates.anti_slop.violations.files.length, 1);
+  } finally {
+    fs2.unlinkSync(tmpPath);
+  }
+});
+
+cleanup();
+
+console.log('\n=== Doctor Tests (v3.0.0) ===\n');
+
+test('doctor runs and produces output', () => {
+  const result = run('doctor');
+  // Exit code may be 0 or 1 depending on environment health — both acceptable
+  assert(result.stdout.includes('Pipeline Doctor'), 'Should print header');
+  assert(result.stdout.includes('Node.js'), 'Should check Node version');
+  assert(result.stdout.includes('config.json'), 'Should check config');
+});
+
+console.log('\n=== Help Tests (v3.0.0) ===\n');
+
+test('--version prints version', () => {
+  const result = run('--version');
+  assertEqual(result.exitCode, 0);
+  assert(/^\d+\.\d+\.\d+$/.test(result.stdout), `Bad version: ${result.stdout}`);
+});
+
+test('help <cmd> prints detailed help', () => {
+  const result = run('help gate');
+  assertEqual(result.exitCode, 0);
+  assert(result.stdout.includes('--violations'), 'gate help should mention --violations');
+});
+
+cleanup();
+
 // --- Summary ---
 
 console.log('\n' + '='.repeat(50));

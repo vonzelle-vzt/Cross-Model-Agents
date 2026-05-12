@@ -83,7 +83,7 @@ State:
 4. WHAT YOU WOULD EXPLICITLY NOT DO (and why)
 
 Be direct. Take a real stance. The other model will challenge you.',
-  model: 'gpt-5.4',
+  model: 'gpt-5.5',
   sandbox: 'read-only'
 )
 
@@ -91,7 +91,7 @@ Return the full response from Codex."
 )
 ```
 
-> **CLI fallback:** If the Codex MCP server is unavailable, the codex-advocate should fall back to: `codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"`
+> **CLI fallback:** If the Codex MCP server is unavailable, the codex-advocate should fall back to: `codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"`
 
 Display both positions to the user side-by-side.
 
@@ -143,7 +143,7 @@ Instructions:
 4. Where you STILL DISAGREE: sharpen your argument
 
 End with your UPDATED POSITION (incorporating concessions).',
-  model: 'gpt-5.4',
+  model: 'gpt-5.5',
   sandbox: 'read-only'
 )
 
@@ -183,7 +183,7 @@ Validate:
 4. Rate your agreement: FULL CONSENSUS / PARTIAL CONSENSUS / DEADLOCK
 
 If PARTIAL CONSENSUS or DEADLOCK, list the specific unresolved disagreements.',
-  model: 'gpt-5.4',
+  model: 'gpt-5.5',
   sandbox: 'read-only'
 )
 

@@ -27,7 +27,7 @@ Use the `codex` MCP tool:
 ```
 mcp__codex__codex(
   prompt: "<detailed review prompt with file contents>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
@@ -37,7 +37,7 @@ For git-diff reviews (when inside a repo), include instructions to run `git diff
 ```
 mcp__codex__codex(
   prompt: "Review the uncommitted changes in this repo. Run git diff to see them. Focus on correctness, security, and risks. Group findings by severity (CRITICAL/WARNING/NIT) with file:line references.",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
@@ -45,7 +45,7 @@ mcp__codex__codex(
 **Fallback** — if the Codex MCP server is not available, use Bash:
 
 ```bash
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"
 ```
 
 ### 3. Multi-Turn Deep Dive
@@ -95,7 +95,7 @@ When a review finding involves a **genuine architectural tradeoff** where reason
    ```
    mcp__codex__codex(
      prompt: "DEBATE: <the specific tradeoff>. Take a clear position. Top 3 reasons. What you'd NOT do.",
-     model: "gpt-5.4",
+     model: "gpt-5.5",
      sandbox: "read-only"
    )
    ```

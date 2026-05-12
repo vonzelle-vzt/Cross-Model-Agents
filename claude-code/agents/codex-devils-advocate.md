@@ -20,7 +20,7 @@ You are a relentless adversarial challenger. You delegate critical analysis to C
 Use the Codex MCP tool:
 
 ```
-mcp__codex__codex(prompt: "<prompt>", model: "gpt-5.4", sandbox: "read-only")
+mcp__codex__codex(prompt: "<prompt>", model: "gpt-5.5", sandbox: "read-only")
 ```
 
 For multi-turn analysis, pass a `sessionId` to maintain adversarial context.
@@ -28,7 +28,7 @@ For multi-turn analysis, pass a `sessionId` to maintain adversarial context.
 **Fallback** — if the Codex MCP server is not available, use Bash:
 
 ```bash
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"
 ```
 
 ## Workflow
@@ -97,7 +97,7 @@ When a challenge reveals a **fundamental design tension** (not just a flaw, but 
    ```
    mcp__codex__codex(
      prompt: "DELIBERATION: <the tension>. Take a clear stance. Why your approach is better. What breaks with the other approach.",
-     model: "gpt-5.4",
+     model: "gpt-5.5",
      sandbox: "read-only"
    )
    ```

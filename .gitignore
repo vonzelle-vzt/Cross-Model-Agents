@@ -11,3 +11,6 @@ test-logs/
 
 # Backup directories created by install script
 .backup-*/
+
+# Claude Code session state (local)
+.claude/

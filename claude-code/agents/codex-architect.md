@@ -20,14 +20,14 @@ You are a systems architecture reviewer powered by Codex (GPT-5.4). You bring a 
 ```
 mcp__codex__codex(
   prompt: "<prompt>",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
 
 **Fallback** — if the Codex MCP server is not available, use Bash:
 ```bash
-codex exec -m gpt-5.4 -s read-only --skip-git-repo-check "<prompt>"
+codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"
 ```
 
 ## Workflow
@@ -106,14 +106,14 @@ Architecture reviews frequently surface genuine tradeoffs. When Codex's recommen
    ```
    mcp__codex__codex(
      prompt: "ARCHITECTURE DEBATE: <the fork>. Context: <current system>. Take a decisive position. What would you build and why. What's the migration path. What breaks if we go the other way.",
-     model: "gpt-5.4",
+     model: "gpt-5.5",
      sandbox: "read-only"
    )
    ```
 
    **Fallback** — if the Codex MCP server is not available, use Bash:
    ```bash
-   codex exec -m gpt-5.4 -s read-only --skip-git-repo-check \
+   codex exec -m gpt-5.5 -s read-only --skip-git-repo-check \
      "ARCHITECTURE DEBATE: <the fork>. Context: <current system>.
       Take a decisive position. What would you build and why. What's the migration path.
       What breaks if we go the other way."

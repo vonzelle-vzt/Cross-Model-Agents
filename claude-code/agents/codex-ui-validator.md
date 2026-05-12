@@ -104,7 +104,7 @@ SCORE = 10 - (critical * 3) - (moderate * 1) - (minor * 0.5)
 
 End with:
 VERDICT: PASS (all files >= 7) or VERDICT: FAIL (any file < 7)",
-  model: "gpt-5.4",
+  model: "gpt-5.5",
   sandbox: "read-only"
 )
 ```
@@ -112,7 +112,7 @@ VERDICT: PASS (all files >= 7) or VERDICT: FAIL (any file < 7)",
 **Fallback** — if the Codex MCP server is not available, use Bash:
 ```bash
 codex exec \
-  -m gpt-5.4 \
+  -m gpt-5.5 \
   -s read-only \
   --skip-git-repo-check \
   "You are the UI Validation Reviewer with strong design opinions.
