@@ -27,7 +27,7 @@ const path = require('path');
 const { execSync, execFileSync } = require('child_process');
 const crypto = require('crypto');
 
-const VERSION = '3.0.0';
+const VERSION = '3.1.0';
 
 // --- One-shot caches ---
 
@@ -209,6 +209,14 @@ function isCodeFile(filePath) {
 
 // --- Commit allowed logic ---
 
+// Security gate is opt-in: it only blocks commits when config.json sets
+// routing.gates.security.blocking = true. It can always be recorded/published.
+function isSecurityGateBlocking() {
+  const cfg = loadConfig();
+  return !!(cfg.routing && cfg.routing.gates && cfg.routing.gates.security
+    && cfg.routing.gates.security.blocking === true);
+}
+
 function recalculateCommitAllowed(state) {
   const g = state.gates || {};
   const antiSlop = !!(g.anti_slop && g.anti_slop.status === 'passed');
@@ -217,7 +225,10 @@ function recalculateCommitAllowed(state) {
     : true;
   const da = !!(g.devils_advocate && g.devils_advocate.status === 'completed');
   const ga = !!(g.gap_analysis && g.gap_analysis.status === 'completed');
-  state.commit_allowed = antiSlop && uiVal && da && ga;
+  const sec = isSecurityGateBlocking()
+    ? !!(g.security && g.security.status === 'completed')
+    : true;
+  state.commit_allowed = antiSlop && uiVal && da && ga && sec;
   return state;
 }
 
@@ -283,7 +294,7 @@ function cmdInit() {
 }
 
 function cmdGate(args) {
-  const VALID_GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis'];
+  const VALID_GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis', 'security'];
   const VALID_STATUSES = ['passed', 'failed', 'completed'];
 
   const { positionals, flags } = parseFlags(args, {
@@ -363,6 +374,9 @@ function cmdCheck() {
   if (!state) {
     process.exit(0);
   }
+  // Recalculate in-memory: config (e.g. routing.gates.security.blocking)
+  // may have changed since the last gate write.
+  recalculateCommitAllowed(state);
 
   // Audited bypass
   const bypass = readActiveBypass();
@@ -408,6 +422,12 @@ function buildMissingGates(state) {
   const ga = g.gap_analysis ? g.gap_analysis.status : 'NOT RUN';
   if (ga !== 'completed') {
     missing.push(`BLOCKED: gap_analysis gate ${ga}. Run the codex-gap-analyst agent.`);
+  }
+  if (isSecurityGateBlocking()) {
+    const sec = g.security ? g.security.status : 'NOT RUN';
+    if (sec !== 'completed') {
+      missing.push(`BLOCKED: security gate ${sec}. Run the codex-security agent. (routing.gates.security.blocking=true)`);
+    }
   }
   return missing;
 }
@@ -521,6 +541,7 @@ function cmdPreCommit() {
     console.log('{}');
     return;
   }
+  recalculateCommitAllowed(state);
   if (state.commit_allowed) {
     console.log('{}');
     return;
@@ -538,6 +559,10 @@ function cmdPreCommit() {
   if (da !== 'completed') lines.push(`- devils_advocate: ${da}`);
   const ga = g.gap_analysis ? g.gap_analysis.status : 'NOT RUN';
   if (ga !== 'completed') lines.push(`- gap_analysis: ${ga}`);
+  if (isSecurityGateBlocking()) {
+    const sec = g.security ? g.security.status : 'NOT RUN';
+    if (sec !== 'completed') lines.push(`- security: ${sec} (blocking enabled in config)`);
+  }
 
   const reason = `PIPELINE GATE BLOCKED: Cannot commit without completing required gates.\n\nMissing gates:\n${lines.join('\n')}\n\nRun these agents before committing, or run:\n  pipeline.js bypass --reason "<explanation>"`;
   logEvent({ event: 'commit_blocked', missing_gates: lines });
@@ -547,6 +572,7 @@ function cmdPreCommit() {
 function cmdStop() {
   try { fs.readFileSync(0, 'utf8'); } catch { /* ok */ }
   const state = readState();
+  if (state) recalculateCommitAllowed(state);
   if (!state || state.commit_allowed) {
     console.log('{}');
     return;
@@ -568,6 +594,9 @@ function cmdStop() {
   }
   lines.push(`- devils_advocate: ${g.devils_advocate ? g.devils_advocate.status : 'NOT RUN'}`);
   lines.push(`- gap_analysis: ${g.gap_analysis ? g.gap_analysis.status : 'NOT RUN'}`);
+  if (isSecurityGateBlocking()) {
+    lines.push(`- security: ${g.security ? g.security.status : 'NOT RUN'}`);
+  }
 
   const warning = `WARNING: You have uncommitted code changes with incomplete pipeline gates. Gates status:\n${lines.join('\n')}\n\nConsider running the required gates before ending this session.`;
   console.log(JSON.stringify({ additionalContext: warning }));
@@ -604,12 +633,17 @@ function cmdReport(args) {
   console.log('');
   console.log('Gates:');
 
-  const GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis'];
+  const GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis', 'security'];
   for (const gate of GATES) {
     const g = state.gates[gate];
     // Show ui_validation if data exists, even when has_frontend_changes is false
     if (gate === 'ui_validation' && !state.has_frontend_changes && !g) {
       console.log(`  ${gate}: SKIPPED (no frontend changes)`);
+      continue;
+    }
+    // Security gate is opt-in — show as optional unless blocking or already run
+    if (gate === 'security' && !isSecurityGateBlocking() && !g) {
+      console.log(`  ${gate}: OPTIONAL (set routing.gates.security.blocking=true to enforce)`);
       continue;
     }
     if (g) {
@@ -751,12 +785,13 @@ function cmdPublish() {
   }
 
   const prefix = (loadConfig().github && loadConfig().github.status_context_prefix) || 'pipeline/';
-  const GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis'];
+  const GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis', 'security'];
   const g = state.gates || {};
   let published = 0;
 
   for (const gate of GATES) {
     if (gate === 'ui_validation' && !state.has_frontend_changes) continue;
+    if (gate === 'security' && !isSecurityGateBlocking() && !g[gate]) continue;
     const gateData = g[gate];
     let ghState, description;
 
@@ -836,8 +871,8 @@ function cmdFetch() {
       if (scoreMatch) score = parseFloat(scoreMatch[1]);
       console.log(`  ${gateName}: ${status.state} — ${status.description || ''}`);
 
-      if (['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis'].includes(gateName)) {
-        const mappedStatus = (gateName === 'devils_advocate' || gateName === 'gap_analysis')
+      if (['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis', 'security'].includes(gateName)) {
+        const mappedStatus = (gateName === 'devils_advocate' || gateName === 'gap_analysis' || gateName === 'security')
           ? (status.state === 'success' ? 'completed' : localStatus)
           : localStatus;
         s.gates[gateName] = {
@@ -986,7 +1021,7 @@ const HELP_TEXT = {
   init: 'init\n  Initialize a pipeline checkpoint for this repo+branch.',
   gate: 'gate <name> <status> [score] [round] [--violations file.json]\n' +
         '  Record a gate result.\n' +
-        '  name: anti_slop | ui_validation | devils_advocate | gap_analysis\n' +
+        '  name: anti_slop | ui_validation | devils_advocate | gap_analysis | security\n' +
         '  status: passed | failed | completed\n' +
         '  --violations: JSON file with full violation details from the gate agent.',
   check: 'check\n  Verify all gates passed. Exit 0 = allowed, 2 = blocked.',
@@ -1028,7 +1063,7 @@ function printTopHelp() {
   console.log('');
   console.log('Run `pipeline.js help <command>` for details.');
   console.log('');
-  console.log('Gate names: anti_slop, ui_validation, devils_advocate, gap_analysis');
+  console.log('Gate names: anti_slop, ui_validation, devils_advocate, gap_analysis, security (opt-in blocking)');
   console.log('Statuses: passed, failed, completed');
 }
 

@@ -1,0 +1,69 @@
+# Server-side verification of cross-model pipeline gates.
+#
+# The local pre-commit hook can be bypassed (--no-verify, uninstalled hooks,
+# a different machine). This workflow closes that hole: it reads the
+# `pipeline/*` commit statuses that `pipeline.js publish` posts and fails the
+# PR if required gates are missing or failing.
+#
+# Copy this file into any repo using Cross-Model Agents. Set ENFORCE to
+# "true" once your team publishes gate statuses on every PR — until then the
+# workflow reports but does not block.
+
+name: Verify Pipeline Gates
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  # Flip to "true" to make missing/failed gates fail the PR.
+  ENFORCE: "false"
+  # Comma-separated required gate contexts (security is opt-in; add
+  # pipeline/security here if routing.gates.security.blocking=true).
+  REQUIRED_GATES: "pipeline/anti_slop,pipeline/devils_advocate,pipeline/gap_analysis"
+
+jobs:
+  verify-gates:
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: read
+      contents: read
+    steps:
+      - name: Check pipeline/* commit statuses on PR head
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const enforce = process.env.ENFORCE === 'true';
+            const required = process.env.REQUIRED_GATES.split(',').map(s => s.trim()).filter(Boolean);
+            const sha = context.payload.pull_request.head.sha;
+
+            const { data } = await github.rest.repos.getCombinedStatusForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+            });
+
+            const pipeline = data.statuses.filter(s => s.context.startsWith('pipeline/'));
+            core.info(`Found ${pipeline.length} pipeline status(es) on ${sha.slice(0, 8)}`);
+            for (const s of pipeline) {
+              core.info(`  ${s.context}: ${s.state} — ${s.description || ''}`);
+            }
+
+            const problems = [];
+            for (const ctx of required) {
+              const s = pipeline.find(p => p.context === ctx);
+              if (!s) problems.push(`${ctx}: MISSING — run the gate locally, then \`pipeline.js publish\``);
+              else if (s.state !== 'success') problems.push(`${ctx}: ${s.state}`);
+            }
+
+            if (problems.length === 0) {
+              core.info('All required pipeline gates are green.');
+              return;
+            }
+
+            const summary = `Required cross-model gates not satisfied:\n${problems.map(p => `  - ${p}`).join('\n')}`;
+            if (enforce) {
+              core.setFailed(summary);
+            } else {
+              core.warning(`${summary}\n(ENFORCE=false — reporting only. Set ENFORCE: "true" in verify-gates.yml to block merges.)`);
+            }

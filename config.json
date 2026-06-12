@@ -1,6 +1,6 @@
 {
   "$schema": "./docs/config-schema.json",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "maintainer": {
     "name": "VZT Tech Consulting",
     "contact": "vonzelle@vzttechconsulting.com"
@@ -11,19 +11,21 @@
       "model": "gpt-5.5",
       "fallback_model": "gpt-5.4",
       "worker_model": "gpt-5.4-mini",
+      "security_model": "gpt-5.2-codex",
       "reasoning_effort": "xhigh",
       "mcp_server": "codex",
       "mcp_tool": "mcp__codex__codex",
       "default_sandbox": "read-only",
       "role": "adversarial_reviewer",
       "max_context": 400000,
-      "notes": "GPT-5.5 released 2026-04-23 — better mid-loop error recovery, 400K ctx. GPT-5.4 retained as cheaper fallback. gpt-5.4-mini used for embarrassingly-parallel fan-out (per-file anti-slop)."
+      "notes": "GPT-5.5 remains OpenAI's frontier (2026-06 Codex docs). GPT-5.4 retained as cheaper fallback. gpt-5.4-mini used for embarrassingly-parallel fan-out (per-file anti-slop). gpt-5.2-codex pinned for the security gate — OpenAI's strongest cybersecurity model. gpt-5.3-codex-spark (near-instant preview) is ChatGPT Pro-only; not routed."
     },
     "claude": {
       "name": "Claude (Anthropic)",
-      "model": "claude-opus-4-7",
+      "model": "claude-opus-4-8",
       "fallback_model": "claude-sonnet-4-6",
       "worker_model": "claude-haiku-4-5",
+      "escalation_model": "claude-fable-5",
       "reasoning_effort": "xhigh",
       "mcp_server": "claude_code",
       "mcp_tool": "mcp__claude-code-mcp__claude_code",
@@ -31,7 +33,7 @@
       "max_context": 1000000,
       "max_output": 128000,
       "supports_task_budgets": true,
-      "notes": "Opus 4.7 released 2026-04-16 — new tokenizer (~1.35x tokens), task budgets, xhigh effort tier. Sonnet 4.6 = workhorse. Haiku 4.5 = fan-out worker (200K ctx, near-frontier per dollar)."
+      "notes": "Opus 4.8 is the current Opus frontier — same API surface as 4.7 (adaptive thinking only, no sampling params). claude-fable-5 (released 2026-06-09, $10/$50 per MTok — 2x Opus) is the optional escalation tier for the hardest long-horizon reviews; it can return stop_reason 'refusal' on cyber/bio-adjacent content, so any gate routed to it MUST fall back to claude-opus-4-8 on refusal. Sonnet 4.6 = workhorse. Haiku 4.5 = fan-out worker (200K ctx)."
     },
     "codex_plugin_cc": {
       "name": "Codex Plugin for Claude Code (OpenAI official)",
@@ -86,9 +88,18 @@
         "fanout": false,
         "task_budget": 10000,
         "reasoning_effort": "xhigh"
+      },
+      "security": {
+        "scorer": "codex",
+        "tier": "security",
+        "blocking": false,
+        "fanout": false,
+        "task_budget": 9000,
+        "reasoning_effort": "xhigh",
+        "note": "Routed to gpt-5.2-codex (OpenAI's strongest cyber model). Opt-in: set blocking=true to make `git commit` require a completed security gate. Run via the codex-security agent."
       }
     },
-    "note": "tier maps to provider.{tier}_model: 'frontier'->model, 'fallback'->fallback_model, 'worker'->worker_model. Adding a new provider: add to providers{} and reference in routing/gates."
+    "note": "tier maps to provider.{tier}_model: 'frontier'->model, 'fallback'->fallback_model, 'worker'->worker_model, 'security'->security_model, 'escalation'->escalation_model. Adding a new provider: add to providers{} and reference in routing/gates."
   },
   "scoring": {
     "pass_threshold": 7,

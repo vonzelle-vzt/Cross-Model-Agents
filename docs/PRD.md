@@ -20,7 +20,7 @@ Existing tools either (a) run a single model multiple times (no real second opin
 
 ## 2. Solution
 
-A bidirectional adversarial review system between **Claude Opus 4.7 / Sonnet 4.6 / Haiku 4.5** and **OpenAI GPT-5.5 / GPT-5.4**, with cross-model calls happening automatically over MCP. Each model acts as the other's reviewer, devil's advocate, and gate scorer. Pipeline enforcement blocks `git commit` until all required gates have passed.
+A bidirectional adversarial review system between **Claude Opus 4.8 / Sonnet 4.6 / Haiku 4.5** (Claude Fable 5 optional escalation) and **OpenAI GPT-5.5 / GPT-5.4**, with cross-model calls happening automatically over MCP. Each model acts as the other's reviewer, devil's advocate, and gate scorer. Pipeline enforcement blocks `git commit` until all required gates have passed.
 
 The product is **infrastructure, not a chat product** — it ships as agents (`.md`/`.toml`), skills (slash commands), and a single cross-platform CLI (`pipeline.js`). It hooks into Claude Code and Codex CLI natively.
 
@@ -53,7 +53,7 @@ The product is **infrastructure, not a chat product** — it ships as agents (`.
 ┌────────────────────────────────────────────────────────────────┐
 │  Developer machine                                             │
 │                                                                │
-│  Claude Code (Opus 4.7)  ←──MCP──→  Codex CLI (GPT-5.5)        │
+│  Claude Code (Opus 4.8)  ←──MCP──→  Codex CLI (GPT-5.5)        │
 │         │                                  │                   │
 │         │ writes/edits files               │ writes/edits      │
 │         ▼                                  ▼                   │
@@ -84,9 +84,9 @@ Every implementation passes through gates in order. Each blocker must pass befor
 
 | Stage | Gate | Tier | Model (default) | Pass criterion |
 |---|---|---|---|---|
-| 1 | Plan | — | Opus 4.7 frontier | n/a (human approval) |
+| 1 | Plan | — | Opus 4.8 frontier | n/a (human approval) |
 | 2 | Cross-model plan review | frontier | Codex / GPT-5.5 | VERDICT: APPROVED |
-| 3 | Implementation | frontier | Opus 4.7 or GPT-5.5 | code written |
+| 3 | Implementation | frontier | Opus 4.8 or GPT-5.5 | code written |
 | 4 | **Anti-slop** | worker (fan-out) | Haiku 4.5 / gpt-5.4-mini per file | score ≥ 7 |
 | 5 | **UI validation** (if frontend) | worker (fan-out) | Haiku 4.5 / gpt-5.4-mini | score ≥ 7 |
 | 6 | **Devil's advocate** | frontier | Codex / GPT-5.5 (xhigh) | completed |
@@ -109,7 +109,7 @@ PASS  = score ≥ 7
 FAIL  = score < 7 → fix + rescore, up to max_rounds (default: 2 in v3.0.0)
 ```
 
-`max_rounds` was reduced from 3 → 2 in v3.0.0 because GPT-5.5 / Opus 4.7 self-correct mid-loop and round 3 rarely changes verdicts.
+`max_rounds` was reduced from 3 → 2 in v3.0.0 because GPT-5.5 / Opus 4.8 self-correct mid-loop and round 3 rarely changes verdicts.
 
 The **10 anti-slop patterns** and **10 UI patterns** are listed in the README.
 
@@ -179,14 +179,17 @@ v3.0.0 removed all legacy bash pipeline scripts (`scripts/pipeline/*.sh`) — th
 
 | Risk | Mitigation |
 |---|---|
-| Opus 4.7 new tokenizer (~1.35× more tokens) blows through budgets | v3.0.0 raised `max_parallel_claude` 2→3; `task_budget` per gate caps thinking |
+| Opus 4.7+ tokenizer (~1.35× more tokens) blows through budgets | v3.0.0 raised `max_parallel_claude` 2→3; `task_budget` per gate caps thinking |
 | OpenAI's official `codex-plugin-cc` overlaps with this product | We bundle it as an optional alternative backend (`providers.codex_plugin_cc.enabled: true`) — composition, not competition |
 | `gh` CLI not installed → `publish`/`fetch` silently no-op | Doctor surfaces this as a warning |
 | User has another pre-commit hook | v3.0.0 installer detects existing non-ours hook and refuses to overwrite |
 
-## 15. Roadmap (post-v3.0.0)
+## 15. Roadmap (post-v3.1.0)
 
-- **v3.1**: Worker fan-out wired into anti-slop / UI agents (currently config-only; agent prompts still need updates).
-- **v3.2**: Codex image generation in UI validator — render component from JSX, diff against Playwright screenshot.
-- **v3.3**: Add Gemini and Deepseek to `providers{}` as additional reviewers.
-- **v3.4**: Dashboard subscribes to live JSONL log tail via WebSocket-less polling.
+Shipped in v3.1.0 (2026-06-11): June 2026 model refresh (Opus 4.8 frontier, Claude Fable 5 escalation tier, gpt-5.2-codex security tier), opt-in blocking `security` gate, and server-side gate verification via `.github/workflows/verify-gates.yml`.
+
+- **v3.2**: Worker fan-out wired into anti-slop / UI agents (currently config-only; agent prompts still need updates).
+- **v3.3**: Test-adequacy gate — score test quality (mutation-style spot checks), not just implementation slop.
+- **v3.4**: Cost observability — per-gate token spend in `pipeline.js report` and the dashboard ("what did this PR cost?").
+- **v3.5**: Add Gemini and Deepseek to `providers{}` as additional reviewers (also unlocks a single-subscription entry path).
+- **v3.6**: Dashboard subscribes to live JSONL log tail via WebSocket-less polling; model-disagreement analytics (where Claude and Codex diverge most).

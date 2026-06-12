@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.1.0] — 2026-06-11
+
+June 2026 model lineup refresh plus two enforcement-layer gaps closed: an opt-in blocking security gate and server-side CI verification of gate statuses.
+
+### Added
+
+- **`security` pipeline gate** — fifth gate, recordable via `pipeline.js gate security completed` and published/fetched like the others. **Opt-in blocking**: set `routing.gates.security.blocking: true` in `config.json` to make `git commit` require a completed cross-model security audit. Routed to a new `security` tier (`providers.codex.security_model`).
+- **`providers.codex.security_model: "gpt-5.2-codex"`** — OpenAI's strongest cybersecurity model, pinned for the security gate. The `codex-security` agent now delegates to it (falls back to `providers.codex.model` if unavailable on the user's plan) and records the gate on completion.
+- **`providers.claude.escalation_model: "claude-fable-5"`** — optional escalation tier for the hardest long-horizon reviews (released 2026-06-09, $10/$50 per MTok). Any gate routed to it must fall back to `claude-opus-4-8` on `stop_reason: "refusal"` (Fable 5 safety classifiers decline cyber/bio-adjacent content — including some legitimate security-review prompts, which is why the security gate stays on the Codex side).
+- **`.github/workflows/verify-gates.yml`** — server-side verification of `pipeline/*` commit statuses on PRs. Closes the `--no-verify` / uninstalled-hook hole: the local machine is no longer the only enforcement point. Ships with `ENFORCE: "false"` (report-only); flip to `"true"` to block merges.
+
+### Changed
+
+- **Claude provider `model` bumped `claude-opus-4-7` → `claude-opus-4-8`** — current Opus frontier, same API surface as 4.7 (no request changes needed).
+- **Codex provider notes refreshed** — `gpt-5.5` confirmed still frontier per June 2026 Codex docs; `gpt-5.3-codex-spark` (near-instant preview) noted but not routed (ChatGPT Pro-only).
+- `pipeline.js` gate lists (`gate`, `check`, `report`, `publish`, `fetch`, hooks, help) now include `security`.
+
+---
+
 ## [3.0.0] — 2026-05-12
 
 Major release. Cross-platform pipeline CLI hardening, 2026 model lineup, audited bypass, and removal of the broken legacy bash layer.

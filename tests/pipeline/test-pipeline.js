@@ -465,6 +465,53 @@ test('help <cmd> prints detailed help', () => {
 
 cleanup();
 
+console.log('\n=== Security Gate Tests (v3.1.0) ===\n');
+
+test('gate records security completed', () => {
+  run('init');
+  const result = run('gate security completed');
+  assertEqual(result.exitCode, 0);
+  assert(result.stdout.includes("Gate 'security' recorded"), result.stdout);
+});
+
+test('security gate not blocking by default', () => {
+  cleanup();
+  run('init');
+  run('gate anti_slop passed 8');
+  run('gate devils_advocate completed');
+  run('gate gap_analysis completed');
+  const result = run('check');
+  assertEqual(result.exitCode, 0, 'commit should be allowed without security gate when blocking=false');
+});
+
+test('security gate blocks when routing.gates.security.blocking=true', () => {
+  cleanup();
+  const configPath = path.join(ROOT, 'config.json');
+  const original = fs.readFileSync(configPath, 'utf8');
+  try {
+    const cfg = JSON.parse(original);
+    cfg.routing.gates.security.blocking = true;
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
+
+    run('init');
+    run('gate anti_slop passed 8');
+    run('gate devils_advocate completed');
+    run('gate gap_analysis completed');
+
+    const blocked = run('check');
+    assertEqual(blocked.exitCode, 2, 'commit should be blocked without security gate when blocking=true');
+    assert(blocked.stdout.includes('security'), blocked.stdout);
+
+    run('gate security completed');
+    const allowed = run('check');
+    assertEqual(allowed.exitCode, 0, 'commit should be allowed once security gate completed');
+  } finally {
+    fs.writeFileSync(configPath, original, 'utf8');
+  }
+});
+
+cleanup();
+
 // --- Summary ---
 
 console.log('\n' + '='.repeat(50));

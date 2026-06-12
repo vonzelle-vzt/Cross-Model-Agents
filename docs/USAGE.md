@@ -123,7 +123,7 @@ Plus a Phase 2: spins up `agent-browser` CLI to screenshot desktop (1920×1080) 
 
 ## 7. Devil's Advocate — frontier model challenge
 
-Runs at the **frontier tier** (Opus 4.7 or GPT-5.5, whichever is the *other* provider). One shot, no fan-out. Job: challenge every assumption in the implementation. "Why this approach? What happens if X? What about Y edge case?"
+Runs at the **frontier tier** (Opus 4.8 or GPT-5.5, whichever is the *other* provider). One shot, no fan-out. Job: challenge every assumption in the implementation. "Why this approach? What happens if X? What about Y edge case?"
 
 This is the gate that catches strategic-level mistakes, not stylistic ones.
 
@@ -143,15 +143,35 @@ Use the codex-gap-analyst agent to check spec vs implementation.
 
 ---
 
+## 8b. Security Gate — opt-in blocking (new in v3.1.0)
+
+Runs on **gpt-5.2-codex** — OpenAI's strongest cybersecurity model (`providers.codex.security_model`). A cross-model white-box audit: OWASP Top 10, JWT/CORS/rate-limit/file-upload checks, CWE-tagged findings with concrete attack vectors.
+
+```
+Use the codex-security agent to audit this auth flow.
+```
+
+The agent records `pipeline.js gate security completed` when the audit finishes with no unfixed CRITICAL findings. By default the gate is **recordable but not blocking**. To make `git commit` require it:
+
+```jsonc
+// config.json
+"routing": { "gates": { "security": { "blocking": true } } }
+```
+
+Why not Claude Fable 5 for this? Fable 5's safety classifiers can refuse cyber-adjacent prompts (`stop_reason: "refusal"`) — including legitimate security reviews. The security lane stays on the Codex side; Fable 5 is reserved as the optional escalation tier for long-horizon architectural review.
+
+---
+
 ## 9. Commit gate — the enforcement layer
 
-Three mechanisms ensure ungated code cannot be committed:
+Four mechanisms ensure ungated code cannot reach `main`:
 
 | Layer | Mechanism | What it does |
 |---|---|---|
 | **Post-edit reminder** | Claude Code `PostToolUse` hook | Nags after each edit |
 | **Commit gate** | Claude `PreToolUse` hook + git `pre-commit` hook | **Blocks `git commit`** |
 | **Session check** | Claude Code `Stop` hook | Warns if you end the session with gates incomplete |
+| **CI verification** | GitHub Actions `verify-gates.yml` | Re-checks published `pipeline/*` statuses on PRs (set `ENFORCE: "true"` to block merges) |
 
 State lives in `.pipeline/state-<branch>.json` (project root, gitignored). Atomic writes + file locking prevent parallel gates from clobbering each other.
 
@@ -214,7 +234,7 @@ node pipeline.js log --event commit_bypassed
 | Gate | Tier | Why this tier |
 |---|---|---|
 | anti-slop, ui-validation | **worker** (Haiku 4.5 / gpt-5.4-mini) | Embarrassingly parallel per-file; doesn't need frontier IQ |
-| devil's-advocate, architect | **frontier** (Opus 4.7 / GPT-5.5) | Strategic reasoning matters |
+| devil's-advocate, architect | **frontier** (Opus 4.8 / GPT-5.5) | Strategic reasoning matters |
 | gap-analysis | **fallback** (Sonnet 4.6 / GPT-5.4) | 10-dimension diff is mechanical; save the budget |
 
 All of it lives in `config.json` under `routing.gates`. To add a new provider (Gemini, etc.), add one block to `providers{}` and reference it in `routing.gates.<gate>.scorer`. No code changes.

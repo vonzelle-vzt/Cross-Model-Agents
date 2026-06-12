@@ -6,17 +6,17 @@
 
 <p align="center">
   <b>Two frontier models. Each one reviews the other's work.</b><br>
-  Bidirectional adversarial review between <b>Claude Code (Opus 4.7)</b> and <b>OpenAI Codex CLI (GPT-5.5)</b> — every plan, every diff, every commit goes through the other model's blind-spot filter before it ships.
+  Bidirectional adversarial review between <b>Claude Code (Opus 4.8)</b> and <b>OpenAI Codex CLI (GPT-5.5)</b> — every plan, every diff, every commit goes through the other model's blind-spot filter before it ships.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://docs.claude.com/en/docs/claude-code"><img src="https://img.shields.io/badge/Claude_Code-Opus_4.7-blueviolet" alt="Claude Code Opus 4.7"></a>
+  <a href="https://docs.claude.com/en/docs/claude-code"><img src="https://img.shields.io/badge/Claude_Code-Opus_4.8-blueviolet" alt="Claude Code Opus 4.8"></a>
   <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/Codex_CLI-GPT--5.5-green" alt="Codex CLI GPT-5.5"></a>
   <img src="https://img.shields.io/badge/Agents-31-orange" alt="31 agents">
   <img src="https://img.shields.io/badge/Skills-4-yellow" alt="4 skills">
   <img src="https://img.shields.io/badge/Tests-236_passing-brightgreen" alt="236 tests passing">
-  <img src="https://img.shields.io/badge/Version-3.0.0-blue" alt="v3.0.0">
+  <img src="https://img.shields.io/badge/Version-3.1.0-blue" alt="v3.1.0">
 </p>
 
 <p align="center">
@@ -124,6 +124,9 @@ That's it. Cross-model review is now in your loop.
   Gap Analysis (fallback model — spec vs build, 10 dimensions)  ──── BLOCKER
      │
      ▼
+  Security Audit (gpt-5.2-codex — OWASP + CWE)        ──── OPT-IN BLOCKER
+     │     Enable: routing.gates.security.blocking=true
+     ▼
   git commit (blocked until all gates pass — or audited bypass)
      │
      ▼
@@ -134,7 +137,7 @@ That's it. Cross-model review is now in your loop.
 
 ```
                 CLAUDE CODE                                CODEX CLI
-                (Opus 4.7 / Sonnet 4.6 / Haiku 4.5)        (GPT-5.5 / GPT-5.4)
+                (Opus 4.8 / Sonnet 4.6 / Haiku 4.5)        (GPT-5.5 / GPT-5.4 / GPT-5.2-Codex)
 
     Claude-side agents (delegate TO Codex)         Codex-side agents (delegate TO Claude)
     ───────────────────────────────────────        ──────────────────────────────────────
@@ -178,6 +181,7 @@ Three mechanisms prevent ungated code from reaching `main`:
 | **Post-edit reminder** | Claude Code `PostToolUse` hook | Nags after every file edit |
 | **Commit gate** | Claude `PreToolUse` hook + git `pre-commit` hook | **Blocks `git commit`** |
 | **Session check** | Claude Code `Stop` hook | Warns if you end the session with gates incomplete |
+| **CI verification** | GitHub Actions (`verify-gates.yml`) | Re-checks published `pipeline/*` statuses on every PR — closes the `--no-verify` hole (new in v3.1.0) |
 
 State lives in `.pipeline/state-<branch>.json` (project root, gitignored). Atomic writes + file locking prevent races. GitHub commit statuses are published from the same state via `pipeline.js publish`.
 
@@ -190,6 +194,12 @@ State lives in `.pipeline/state-<branch>.json` (project root, gitignored). Atomi
 - **Security-sensitive shops** that need an independent reviewer with different training data.
 
 ---
+
+## What's new in v3.1.0 (June 2026)
+
+- **Model lineup refreshed for June 2026** — Claude side moves to **Opus 4.8** (frontier) with **Claude Fable 5** (released 2026-06-09) as an optional escalation tier under `providers.claude.escalation_model`. Fable 5 can return `stop_reason: "refusal"` on cyber/bio-adjacent content — gates routed to it fall back to Opus 4.8.
+- **Security gate (opt-in blocking)** — a fifth pipeline gate routed to **gpt-5.2-codex**, OpenAI's strongest cybersecurity model. Record with `pipeline.js gate security completed`; set `routing.gates.security.blocking: true` in `config.json` to make `git commit` require it.
+- **Server-side gate verification** — `.github/workflows/verify-gates.yml` checks the `pipeline/*` commit statuses on every PR, closing the `git commit --no-verify` / uninstalled-hook loophole. Report-only by default; set `ENFORCE: "true"` to block merges.
 
 ## What's new in v3.0.0 (May 2026)
 
@@ -211,7 +221,7 @@ Full details in [CHANGELOG.md](CHANGELOG.md). Day-to-day usage in [docs/USAGE.md
 
 Copy-paste this block into Claude Code, Codex, Cursor, Windsurf, or any AI coding agent — it sets up the entire system:
 
-> **Clone and install the cross-model adversarial review system. This gives me bidirectional code review between Claude (Opus 4.7) and Codex (GPT-5.5) — each model acts as the other's devil's advocate.**
+> **Clone and install the cross-model adversarial review system. This gives me bidirectional code review between Claude (Opus 4.8) and Codex (GPT-5.5) — each model acts as the other's devil's advocate.**
 >
 > ```bash
 > git clone https://github.com/vonzelle-vzt/Cross-Model-Agents.git
@@ -228,7 +238,7 @@ Copy-paste this block into Claude Code, Codex, Cursor, Windsurf, or any AI codin
 
 ---
 
-## Model Lineup (May 2026)
+## Model Lineup (June 2026)
 
 The config is provider-agnostic. Add a new model in one entry in `config.json`.
 
@@ -236,21 +246,23 @@ The config is provider-agnostic. Add a new model in one entry in `config.json`.
 
 | Model | Role | Context | Use |
 |---|---|---|---|
-| **claude-opus-4-7** | Frontier | 1M / 128k out | Devil's advocate, architect, planner, frontend design |
+| **claude-opus-4-8** | Frontier | 1M / 128k out | Devil's advocate, architect, planner, frontend design |
+| **claude-fable-5** | Escalation (optional) | 1M / 128k out | Hardest long-horizon reviews; falls back to Opus 4.8 on refusal |
 | **claude-sonnet-4-6** | Fallback | 1M | Gap analysis, general review |
 | **claude-haiku-4-5** | Worker | 200K | Per-file anti-slop scoring (fan-out) |
 
-Opus 4.7 (2026-04-16) introduced task budgets, a new tokenizer (~1.35× tokens), and the `xhigh` reasoning tier. Haiku 4.5 is purpose-built for the "Sonnet/Opus plans, Haiku executes" multi-agent pattern.
+Opus 4.8 is the current Opus frontier — same API surface as 4.7, so the upgrade is a model-ID swap. Claude Fable 5 (2026-06-09, $10/$50 per MTok — 2× Opus) is Anthropic's most capable widely released model; its safety classifiers can refuse cyber/bio-adjacent prompts, so it is **not** used for the security gate and any gate routed to it must handle `stop_reason: "refusal"` by retrying on Opus 4.8.
 
 ### OpenAI side
 
 | Model | Role | Context | Use |
 |---|---|---|---|
-| **gpt-5.5** | Frontier | 400K | Devil's advocate, security audit, cross-model review |
+| **gpt-5.5** | Frontier | 400K | Devil's advocate, cross-model review |
 | **gpt-5.4** | Fallback | 400K | Cheaper general-purpose review |
 | **gpt-5.4-mini** | Worker | 400K | Per-file scoring fan-out |
+| **gpt-5.2-codex** | Security | 400K | Security gate — OpenAI's strongest cybersecurity model |
 
-GPT-5.5 (2026-04-23) is materially better at mid-loop error recovery — `max_rounds` dropped 3 → 2 in v3.0.0 as a result.
+GPT-5.5 remains OpenAI's frontier per the June 2026 Codex docs. `gpt-5.3-codex-spark` (near-instant preview) is ChatGPT Pro-only and not routed.
 
 ### Optional: OpenAI's codex-plugin-cc
 
@@ -417,7 +429,7 @@ Central config: `config.json` (project root). The system is **provider-agnostic*
 
 ```json
 {
-  "version": "3.0.0",
+  "version": "3.1.0",
   "maintainer": {
     "name": "VZT Tech Consulting",
     "contact": "vonzelle@vzttechconsulting.com"
@@ -427,13 +439,15 @@ Central config: `config.json` (project root). The system is **provider-agnostic*
       "model": "gpt-5.5",
       "fallback_model": "gpt-5.4",
       "worker_model": "gpt-5.4-mini",
+      "security_model": "gpt-5.2-codex",
       "reasoning_effort": "xhigh",
       "mcp_tool": "mcp__codex__codex"
     },
     "claude": {
-      "model": "claude-opus-4-7",
+      "model": "claude-opus-4-8",
       "fallback_model": "claude-sonnet-4-6",
       "worker_model": "claude-haiku-4-5",
+      "escalation_model": "claude-fable-5",
       "supports_task_budgets": true
     }
   },
@@ -442,7 +456,8 @@ Central config: `config.json` (project root). The system is **provider-agnostic*
       "anti_slop":      { "scorer": "codex", "tier": "worker",   "fanout": true,  "task_budget": 4000  },
       "ui_validation":  { "scorer": "codex", "tier": "worker",   "fanout": true,  "task_budget": 5000  },
       "devils_advocate":{ "scorer": "codex", "tier": "frontier", "fanout": false, "task_budget": 12000 },
-      "gap_analysis":   { "scorer": "codex", "tier": "fallback", "fanout": false, "task_budget": 8000  }
+      "gap_analysis":   { "scorer": "codex", "tier": "fallback", "fanout": false, "task_budget": 8000  },
+      "security":       { "scorer": "codex", "tier": "security", "blocking": false, "task_budget": 9000 }
     }
   },
   "scoring":     { "pass_threshold": 7, "max_rounds": 2, "score_min": 0, "score_max": 10 },
