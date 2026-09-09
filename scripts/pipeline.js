@@ -27,7 +27,7 @@ const path = require('path');
 const { execSync, execFileSync } = require('child_process');
 const crypto = require('crypto');
 
-const VERSION = '3.1.0';
+const VERSION = '3.2.0';
 
 // --- One-shot caches ---
 

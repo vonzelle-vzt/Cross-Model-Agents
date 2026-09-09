@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.2.0] — 2026-09-09
+
+Enforcement release. Every change below follows from one finding: on a machine that believed it was protected, the
+commit gate had never fired. `git config --global core.hooksPath` was unset, `~/.githooks` did not exist, and none of
+the 31 agents or 4 skills were installed — while the README advertised a gate that blocks `git commit`.
+
+The design hole that hid it: gate state lives in the gitignored `.pipeline/`, so every fresh checkout and every new
+`git worktree` began with no state, and both `check` and `pre-commit` treated missing state as "nothing to enforce" and
+exited 0. Enforcement was absent exactly where it was most needed.
+
+### Added
+
+- **`.pipeline-required` marker** — a repository opts into enforcement by committing this file at its root. With the
+  marker, missing or invalid checkpoint state **blocks** the commit (`check` exits 2, the PreToolUse hook denies) instead
+  of passing. Without it, behavior is unchanged byte-for-byte, so unmarked repos and non-VZT consumers are unaffected.
+  The marker must be committed rather than merely staged: `git worktree add` checks out a commit, so an untracked marker
+  is absent in exactly the worktrees the gate is meant to guard.
+- **`scripts/install-hooks.js <repo>`** — installs the pre-commit shim into `<repo>/.git/cross-model-hooks/` and points
+  that repository's **local** `core.hooksPath` at it. Refuses to replace an existing custom or husky-managed hook, and
+  never writes global git config.
+- **`uninstall.js --repo <path>`** (repeatable) — removes the repo-local hooks directory and unsets that repository's
+  local `core.hooksPath`. Refuses any hooks directory lacking the `.cross-model-managed` sentinel, so it cannot delete
+  hooks it did not write. Leaves the tracked `.pipeline-required` marker in place: deleting a committed file is a
+  repository change, not an uninstall.
+- **Content-bound approvals** — each recorded gate stores a fingerprint of the index and the working tree. A review can
+  no longer be borrowed by different content: reviewing and then staging that same content still passes, while staging
+  A, editing to B, reviewing B and committing A is refused.
+- **CI runs `test-install-hooks.js` and `test-uninstall-hooks.js`** — both existed on disk and neither was executed by
+  the workflow. An oracle nobody runs is not coverage.
+
+### Changed
+
+- **Hooks are installed per repository, never globally.** The previous installer ran
+  `git config --global core.hooksPath ~/.githooks`. A global hooks path takes over every repository relying on the
+  default `.git/hooks`, silently disabling existing `pre-commit` / `pre-push` hooks there. (A repository that sets its
+  own local `core.hooksPath`, as husky v9 does, still wins over the global value.) Opting one repo in must never disarm
+  another.
+- **Scored gates enforce `scoring.pass_threshold`** — recording `anti_slop` or `ui_validation` as `passed` now requires a
+  score at or above the threshold.
+- **Frontend detection reads the real git diff** rather than trusting `track`, so the UI gate cannot be skipped by
+  omitting a file.
+- `status --json` and `publish` recompute rather than trusting a cached `commit_allowed`.
+- README, `docs/USAGE.md` and `docs/PRD.md` corrected: hooks are repo-local, the marker is what makes missing state
+  enforce, and the uninstaller's scope is stated rather than implied.
+
+### Fixed
+
+- **Uninstaller could leave a repository pointing at deleted hooks.** The `core.hooksPath` comparison was a resolved
+  string compare; on macOS the stored value arrives as `/private/var/...` while `path.resolve()` yields `/var/...`, so
+  the tool's own hooks directory read as a third party's — the pointer was left set and the directory removed anyway.
+  Git silently runs no hooks in that state. Now compared through `realpath`.
+
+### Known limitations
+
+- **Orca does not execute the `setup:` block in a repository's `orca.yaml`.** It takes its setup command from
+  `hookSettings.scripts.setup` in its own repo record, which is empty by default and is not settable from the `orca`
+  CLI. Auto-initializing a new Orca worktree therefore requires setting that field in the Orca app UI. Enforcement does
+  not depend on it: a worktree carrying the marker and no state fails closed.
+
+---
+
 ## [3.1.0] — 2026-06-11
 
 June 2026 model lineup refresh plus two enforcement-layer gaps closed: an opt-in blocking security gate and server-side CI verification of gate statuses.

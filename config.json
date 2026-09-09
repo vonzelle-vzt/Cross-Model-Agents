@@ -1,6 +1,6 @@
 {
   "$schema": "./docs/config-schema.json",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "maintainer": {
     "name": "VZT Tech Consulting",
     "contact": "vonzelle@vzttechconsulting.com"

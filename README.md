@@ -15,8 +15,8 @@
   <a href="https://github.com/openai/codex"><img src="https://img.shields.io/badge/Codex_CLI-GPT--5.5-green" alt="Codex CLI GPT-5.5"></a>
   <img src="https://img.shields.io/badge/Agents-31-orange" alt="31 agents">
   <img src="https://img.shields.io/badge/Skills-4-yellow" alt="4 skills">
-  <img src="https://img.shields.io/badge/Tests-236_passing-brightgreen" alt="236 tests passing">
-  <img src="https://img.shields.io/badge/Version-3.1.0-blue" alt="v3.1.0">
+  <img src="https://img.shields.io/badge/Tests-240_passing-brightgreen" alt="240 tests passing">
+  <img src="https://img.shields.io/badge/Version-3.2.0-blue" alt="v3.2.0">
 </p>
 
 <p align="center">
@@ -192,6 +192,40 @@ State lives in `.pipeline/state-<branch>.json` (project root, gitignored). Atomi
 - **Solo developers** using AI coding assistants who want a structurally different second opinion.
 - **Teams** enforcing cross-model quality gates in AI-assisted workflows.
 - **Security-sensitive shops** that need an independent reviewer with different training data.
+
+---
+
+## What's new in v3.2.0 (September 2026)
+
+**The gate now actually enforces.** Everything below fixes one finding: on a machine that believed it was protected, the
+gate had never fired once. `core.hooksPath` was unset, no hook was installed, and none of the 31 agents or 4 skills were
+present — while this README advertised a blocking commit gate.
+
+The design hole underneath it: gate state lives in the gitignored `.pipeline/`, so **every fresh checkout and every new
+`git worktree` started with no state**, and both `check` and `pre-commit` read missing state as "nothing to enforce" and
+exited 0. Enforcement was weakest exactly where it was needed most.
+
+- **`.pipeline-required` marker** — a repo opts in by committing this file at its root. With it, missing or invalid state
+  **blocks** instead of passing. Without it, behavior is byte-for-byte unchanged, so existing consumers are unaffected.
+  It must be *committed*: `git worktree add` checks out a commit, so an untracked marker vanishes in exactly the
+  worktrees it is meant to protect.
+- **`scripts/install-hooks.js <repo>`** — installs hooks **per repository** into `<repo>/.git/cross-model-hooks/` and
+  sets that repo's local `core.hooksPath`. It refuses to clobber existing custom or husky-managed hooks. It deliberately
+  does **not** set a global `core.hooksPath`: a global value takes over every repo relying on the default `.git/hooks`,
+  which would silently disarm unrelated repos. Opting one repo in must never disarm another.
+- **`uninstall.js --repo <path>`** — the inverse. Removes the repo-local hooks dir and unsets that repo's local
+  `core.hooksPath`, refusing any hooks directory without the `.cross-model-managed` sentinel.
+- **Approvals are bound to content** — a gate result is tied to a snapshot of the index *and* the working tree, so a
+  review cannot be borrowed by different code. Reviewing and then staging the same content still passes; staging A,
+  editing to B, reviewing B and committing A does not.
+- **Scored gates enforce `pass_threshold`** — `passed` now requires a score at or above the threshold, and UI changes are
+  discovered from the real git diff rather than trusted from `track`.
+- **CI runs the installer and uninstaller integration tests** — both existed on disk and neither was executed.
+
+Known limitation: Orca does not run the `setup:` block in a repo's `orca.yaml` — it reads `hookSettings.scripts.setup`
+from its own repo record, which is empty by default and not settable from the CLI. Auto-arming a new Orca worktree
+therefore requires setting that field in the Orca UI. Enforcement does not depend on it: an un-armed worktree carrying
+the marker fails closed.
 
 ---
 
@@ -430,7 +464,7 @@ Central config: `config.json` (project root). The system is **provider-agnostic*
 
 ```json
 {
-  "version": "3.1.0",
+  "version": "3.2.0",
   "maintainer": {
     "name": "VZT Tech Consulting",
     "contact": "vonzelle@vzttechconsulting.com"
