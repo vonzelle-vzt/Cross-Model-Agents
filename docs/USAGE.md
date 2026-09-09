@@ -337,9 +337,10 @@ Use the codex-qa agent for test coverage and quality review.
 
 | Symptom | Fix |
 |---|---|
-| `git commit` proceeds without gates | `node pipeline.js doctor` — likely `core.hooksPath` not set. Re-run installer. |
+| `git commit` proceeds without gates | `node pipeline.js doctor`. Two common causes: this repo's `core.hooksPath` is not set (re-run `node scripts/install-hooks.js <repo>`), or the repo has no committed `.pipeline-required` marker, in which case missing state is not enforced by design. |
 | Cross-model calls hang | Codex CLI or `codex-mcp-server` not installed. `node pipeline.js doctor` will say so. |
-| Pre-commit hook never fires | `git config --global core.hooksPath ~/.githooks` (installer should have done this) |
+| Pre-commit hook never fires | `node scripts/install-hooks.js <path-to-repo>` — wires `core.hooksPath` for that repo only. Do **not** set `core.hooksPath` globally: it silently disables husky and every other per-repo hook on the machine. |
+| Gate armed in the main checkout but not in a new worktree | The `.pipeline-required` marker is staged but not committed. `git worktree add` checks out a commit, so commit the marker. |
 | State seems stale after switching branches | `node pipeline.js reset` |
 | Gate result inconsistent across machines | `node pipeline.js fetch` to pull GitHub statuses back into local state |
 | Need to ship right now, gates failing | `node pipeline.js bypass --reason "<≥12 chars>"` then commit |

@@ -27,7 +27,7 @@ const path = require('path');
 const { execSync, execFileSync } = require('child_process');
 const crypto = require('crypto');
 
-const VERSION = '3.1.0';
+const VERSION = '3.2.0';
 
 // --- One-shot caches ---
 
@@ -135,7 +135,12 @@ function readStateRaw() {
   const filepath = getCheckpointPath();
   if (!fs.existsSync(filepath)) return null;
   try {
-    return JSON.parse(fs.readFileSync(filepath, 'utf8'));
+    const state = JSON.parse(fs.readFileSync(filepath, 'utf8'));
+    if (!state || typeof state !== 'object' || !state.gates ||
+        typeof state.gates !== 'object' || Array.isArray(state.gates) ||
+        !Array.isArray(state.changed_files) ||
+        Object.values(state.gates).some(g => !g || typeof g !== 'object')) return null;
+    return state;
   } catch {
     return null;
   }
@@ -197,7 +202,7 @@ function isFrontendFile(filePath) {
   const ext = path.extname(filePath);
   if (FRONTEND_EXTENSIONS.has(ext)) return true;
   if (FRONTEND_DIR_EXTENSIONS.has(ext)) {
-    const normalized = filePath.replace(/\\/g, '/');
+    const normalized = '/' + filePath.replace(/\\/g, '/').replace(/^\/+/, '');
     return FRONTEND_DIRS.some(dir => normalized.includes(dir));
   }
   return false;
@@ -205,6 +210,79 @@ function isFrontendFile(filePath) {
 
 function isCodeFile(filePath) {
   return CODE_EXTENSIONS.has(path.extname(filePath));
+}
+
+// Snapshot the reviewed working tree using Git blob IDs. Clean files reuse the
+// index IDs; only modified/untracked files need hashing. Staging identical
+// reviewed content therefore preserves approval without permitting partial-stage
+// content to borrow the review of a different working version.
+function reviewSnapshot() {
+  return memo('review-snapshot', () => {
+    const git = args => execFileSync('git', args, {
+      cwd: getRepoRoot(), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: 64 * 1024 * 1024
+    });
+    const relevant = f => f && !f.startsWith('.pipeline/');
+    const index = new Map();
+    for (const entry of git(['ls-files', '--stage', '-z']).split('\0').filter(Boolean)) {
+      const tab = entry.indexOf('\t');
+      const [mode, oid, stage] = entry.slice(0, tab).split(' ');
+      if (stage !== '0') throw new Error('Resolve merge conflicts before recording pipeline gates.');
+      const file = entry.slice(tab + 1);
+      if (relevant(file)) index.set(file, { mode, oid });
+    }
+    const working = new Map(index);
+    const dirty = git(['diff-files', '--name-only', '-z']).split('\0');
+    const untracked = git(['ls-files', '--others', '--exclude-standard', '-z']).split('\0');
+    const fileMode = gitExec('config --get core.filemode') !== 'false';
+    for (const file of new Set([...dirty, ...untracked].filter(relevant))) {
+      const full = path.join(getRepoRoot(), file);
+      let stat;
+      try { stat = fs.lstatSync(full); }
+      catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        working.delete(file);
+        continue;
+      }
+      if (stat.isDirectory() && index.get(file)?.mode === '160000') {
+        const head = git(['-C', full, 'rev-parse', 'HEAD']).trim();
+        const changes = git(['-C', full, 'status', '--porcelain']);
+        working.set(file, { mode: '160000', oid: head + (changes ? ':dirty:' + changes : '') });
+        continue;
+      }
+      const symbolic = stat.isSymbolicLink();
+      if (!symbolic && !stat.isFile()) throw new Error(`Cannot fingerprint ${file}: unsupported file type`);
+      const mode = symbolic ? '120000' : (!fileMode && index.has(file)
+        ? index.get(file).mode : (stat.mode & 0o111 ? '100755' : '100644'));
+      const args = symbolic ? ['hash-object', '--stdin'] : ['hash-object', '--path', file, '--stdin'];
+      const oid = execFileSync('git', args, {
+        cwd: getRepoRoot(), input: symbolic ? fs.readlinkSync(full) : fs.readFileSync(full),
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+      working.set(file, { mode, oid });
+    }
+    let staged;
+    try { staged = git(['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD', '--']); }
+    catch { staged = [...index.keys()].join('\0'); }
+    const indexMatches = staged.split('\0').filter(relevant).every(file =>
+      JSON.stringify(index.get(file)) === JSON.stringify(working.get(file)));
+    const entries = [...working].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return {
+      fingerprint: crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex'),
+      indexMatches
+    };
+  });
+}
+
+function snapshotFingerprint() { return reviewSnapshot().fingerprint; }
+
+function effectiveGates(state) {
+  const snapshot = reviewSnapshot();
+  return Object.fromEntries(Object.entries(state.gates || {}).map(([name, gate]) => [name, {
+    ...gate,
+    status: gate.status === 'failed' || (gate.snapshot === snapshot.fingerprint && snapshot.indexMatches)
+      ? gate.status : 'stale'
+  }]));
 }
 
 // --- Commit allowed logic ---
@@ -218,7 +296,17 @@ function isSecurityGateBlocking() {
 }
 
 function recalculateCommitAllowed(state) {
-  const g = state.gates || {};
+  const actualChanges = memo('changed-paths', () => {
+    const git = args => execFileSync('git', args, { cwd: getRepoRoot(), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    let tracked;
+    try { tracked = git(['diff', '--name-only', '--no-renames', '-z', 'HEAD', '--']); }
+    catch { tracked = git(['ls-files', '--cached', '-z']); }
+    return (tracked + git(['ls-files', '--others', '--exclude-standard', '-z']))
+      .split('\0').filter(f => f && !f.startsWith('.pipeline/'));
+  });
+  state.changed_files = [...new Set([...state.changed_files, ...actualChanges])];
+  state.has_frontend_changes = state.has_frontend_changes || state.changed_files.some(isFrontendFile);
+  const g = effectiveGates(state);
   const antiSlop = !!(g.anti_slop && g.anti_slop.status === 'passed');
   const uiVal = state.has_frontend_changes
     ? !!(g.ui_validation && g.ui_validation.status === 'passed')
@@ -283,14 +371,13 @@ function parseFlags(args, schema) {
 // --- Subcommands ---
 
 function cmdInit() {
-  const existing = readState();
-  if (existing) {
-    process.exit(0);
-  }
-  const state = createInitialState();
-  writeState(state);
-  logEvent({ event: 'pipeline_init', session_id: state.session_id });
-  console.log(`Pipeline checkpoint initialized: ${getCheckpointPath()}`);
+  withFileLock(getCheckpointPath(), () => {
+    if (readState()) return;
+    const state = createInitialState();
+    writeState(state);
+    logEvent({ event: 'pipeline_init', session_id: state.session_id });
+    console.log(`Pipeline checkpoint initialized: ${getCheckpointPath()}`);
+  });
 }
 
 function cmdGate(args) {
@@ -332,6 +419,14 @@ function cmdGate(args) {
     }
   }
 
+  if (['anti_slop', 'ui_validation'].includes(gateName) && status === 'passed') {
+    const threshold = (loadConfig().scoring || {}).pass_threshold ?? 7;
+    if (score === null || score < threshold) {
+      console.error(`ERROR: passed ${gateName} requires a score >= ${threshold}`);
+      process.exit(1);
+    }
+  }
+
   // Optional violations file
   let violations = null;
   if (flags['--violations']) {
@@ -345,6 +440,7 @@ function cmdGate(args) {
 
   const state = mutateState((s) => {
     s.gates[gateName] = {
+      snapshot: snapshotFingerprint(),
       status,
       score,
       round,
@@ -369,9 +465,16 @@ function cmdGate(args) {
   console.log(`Commit allowed: ${state.commit_allowed}`);
 }
 
-function cmdCheck() {
+function pipelineRequired() {
+  return fs.existsSync(path.join(getRepoRoot(), '.pipeline-required'));
+}
+
+const INIT_REQUIRED = 'PIPELINE CHECK FAILED — required checkpoint missing or invalid. Run: pipeline.js init';
+
+function cmdCheck(args = []) {
   const state = readState();
   if (!state) {
+    if (pipelineRequired()) { console.log(INIT_REQUIRED); process.exit(2); }
     process.exit(0);
   }
   // Recalculate in-memory: config (e.g. routing.gates.security.blocking)
@@ -383,6 +486,7 @@ function cmdCheck() {
   if (bypass) {
     console.log(`Pipeline check bypassed: reason="${bypass.reason}" by=${bypass.author}`);
     logEvent({ event: 'commit_bypassed', reason: bypass.reason, author: bypass.author });
+    if (args.includes('--consume-bypass')) consumeBypass();
     process.exit(0);
   }
 
@@ -403,7 +507,7 @@ function cmdCheck() {
 
 function buildMissingGates(state) {
   const missing = [];
-  const g = state.gates || {};
+  const g = effectiveGates(state);
 
   const antiSlop = g.anti_slop ? g.anti_slop.status : 'NOT RUN';
   if (antiSlop !== 'passed') {
@@ -538,7 +642,7 @@ function cmdPreCommit() {
 
   const state = readState();
   if (!state) {
-    console.log('{}');
+    console.log(pipelineRequired() ? JSON.stringify({ decision: 'deny', reason: INIT_REQUIRED }) : '{}');
     return;
   }
   recalculateCommitAllowed(state);
@@ -547,7 +651,7 @@ function cmdPreCommit() {
     return;
   }
 
-  const g = state.gates || {};
+  const g = effectiveGates(state);
   const lines = [];
   const antiSlop = g.anti_slop ? g.anti_slop.status : 'NOT RUN';
   if (antiSlop !== 'passed') lines.push(`- anti_slop: ${antiSlop}`);
@@ -586,7 +690,7 @@ function cmdStop() {
     fs.writeFileSync(marker, '', 'utf8');
   }
 
-  const g = state.gates || {};
+  const g = effectiveGates(state);
   const lines = [];
   lines.push(`- anti_slop: ${g.anti_slop ? g.anti_slop.status : 'NOT RUN'}`);
   if (state.has_frontend_changes) {
@@ -605,12 +709,13 @@ function cmdStop() {
 function cmdReport(args) {
   const { flags } = parseFlags(args, { boolFlags: ['--json'] });
   const state = readState();
+  if (state) recalculateCommitAllowed(state);
 
   if (flags['--json']) {
     const bypass = readActiveBypass();
     const payload = state
-      ? { ...state, active_bypass: bypass, missing: state.commit_allowed ? [] : buildMissingGates(state) }
-      : { active: false };
+      ? { ...state, active: true, required: pipelineRequired(), gates: effectiveGates(state), active_bypass: bypass, missing: state.commit_allowed ? [] : buildMissingGates(state) }
+      : { active: false, required: pipelineRequired(), commit_allowed: !pipelineRequired() };
     console.log(JSON.stringify(payload, null, 2));
     return;
   }
@@ -635,7 +740,7 @@ function cmdReport(args) {
 
   const GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis', 'security'];
   for (const gate of GATES) {
-    const g = state.gates[gate];
+    const g = effectiveGates(state)[gate];
     // Show ui_validation if data exists, even when has_frontend_changes is false
     if (gate === 'ui_validation' && !state.has_frontend_changes && !g) {
       console.log(`  ${gate}: SKIPPED (no frontend changes)`);
@@ -773,6 +878,7 @@ function cmdPublish() {
     console.log('No active pipeline checkpoint to publish.');
     return;
   }
+  recalculateCommitAllowed(state);
   const repo = getGitHubRepo();
   if (!repo) {
     console.error('ERROR: Could not determine GitHub repo from git remote.');
@@ -784,9 +890,22 @@ function cmdPublish() {
     process.exit(1);
   }
 
+  // GitHub statuses describe HEAD, never an uncommitted snapshot. A review
+  // recorded against staged changes may only be published after that commit.
+  try {
+    execFileSync('git', ['diff', '--quiet', 'HEAD', '--'], { cwd: getRepoRoot(), stdio: 'pipe' });
+    const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+      cwd: getRepoRoot(), encoding: 'utf8'
+    }).split('\0').filter(f => f && !f.startsWith('.pipeline/'));
+    if (untracked.length) throw new Error('untracked files remain');
+  } catch {
+    console.error('ERROR: Commit the reviewed snapshot before publishing statuses for HEAD.');
+    process.exit(2);
+  }
+
   const prefix = (loadConfig().github && loadConfig().github.status_context_prefix) || 'pipeline/';
   const GATES = ['anti_slop', 'ui_validation', 'devils_advocate', 'gap_analysis', 'security'];
-  const g = state.gates || {};
+  const g = effectiveGates(state);
   let published = 0;
 
   for (const gate of GATES) {
@@ -948,21 +1067,21 @@ function cmdDoctor() {
     fail('Not inside a git repository');
   }
 
-  // Hooks path
-  const hooksPath = gitExec('config --global core.hooksPath');
-  const expected = path.join(require('os').homedir(), '.githooks');
-  if (hooksPath && (hooksPath === expected || path.resolve(hooksPath) === path.resolve(expected))) {
-    pass(`git core.hooksPath = ${hooksPath}`);
-  } else if (hooksPath) {
-    warn(`git core.hooksPath = ${hooksPath} (expected ${expected}) — pipeline pre-commit hook may not fire`);
-  } else {
-    fail(`git core.hooksPath not set — run: git config --global core.hooksPath "${expected}"`);
-  }
-
-  // Hook file exists
-  const hookPath = path.join(expected, 'pre-commit');
-  if (fs.existsSync(hookPath)) pass(`pre-commit hook installed at ${hookPath}`);
-  else fail(`pre-commit hook missing at ${hookPath} — run scripts/install.js`);
+  // Inspect the effective hook, including repository-local hooksPath settings.
+  const hooksPath = gitExec('config --path --get core.hooksPath');
+  if (hooksPath) pass(`git core.hooksPath = ${hooksPath}`);
+  else fail('git core.hooksPath not set — run scripts/install-hooks.js in this repository');
+  const resolvedHook = gitExec('rev-parse --git-path hooks/pre-commit');
+  const hookPath = resolvedHook ? path.resolve(resolvedHook) : null;
+  if (hookPath && fs.existsSync(hookPath)) {
+    const body = fs.readFileSync(hookPath, 'utf8');
+    if (/cross-model-agents|pipeline-precommit/.test(body)) {
+      try {
+        fs.accessSync(hookPath, process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK);
+        pass(`pre-commit hook installed at ${hookPath}`);
+      } catch { fail(`pre-commit hook is not executable: ${hookPath}`); }
+    } else fail(`pre-commit hook does not invoke the pipeline: ${hookPath}`);
+  } else fail(`pre-commit hook missing — run scripts/install-hooks.js in this repository`);
 
   // gh CLI
   try {
@@ -1078,7 +1197,7 @@ if (command === '-v' || command === '--version') { console.log(VERSION); process
 switch (command) {
   case 'init':       cmdInit(); break;
   case 'gate':       cmdGate(args); break;
-  case 'check':      cmdCheck(); break;
+  case 'check':      cmdCheck(args); break;
   case 'reset':      cmdReset(args); break;
   case 'track':      cmdTrack(args); break;
   case 'post-edit':  cmdPostEdit(args); break;

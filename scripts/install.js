@@ -43,7 +43,7 @@ for (let i = 0; i < args.length; i++) {
     console.log('  --copy            Use copies instead of symlinks');
     console.log('  --yes, -y         Unattended: accept defaults for all prompts');
     console.log('  --minimal         Unattended + skip all MCP server installs');
-    console.log('  --skip-hook       Do not install the git pre-commit hook');
+    console.log('  --skip-hook       Do not install the repository-local git pre-commit hook');
     console.log('  --with <list>     Pre-approve specific MCPs (comma-sep): codex,claude-code-mcp,exa,...');
     console.log('  --help, -h        Show this help');
     process.exit(0);
@@ -454,103 +454,10 @@ async function main() {
     console.log('');
     // Fall through to MCP phases below
   } else {
-  const githooksDir = path.join(HOME, '.githooks');
-  mkdirp(githooksDir);
-  const preCommitPath = path.join(githooksDir, 'pre-commit');
-  const preCommitJsPath = path.join(githooksDir, 'pipeline-precommit.js');
-
-  // Always (re)write the JS helper so it points at the right pipeline.js
-  const jsHelper = [
-    '#!/usr/bin/env node',
-    '// Pipeline pre-commit hook (cross-platform). Installed by cross-model-agents.',
-    "'use strict';",
-    "const { spawnSync } = require('child_process');",
-    "const path = require('path');",
-    "const fs = require('fs');",
-    "const os = require('os');",
-    '',
-    "// Audited bypass — SKIP_PIPELINE_CHECK=1 must be paired with PIPELINE_BYPASS_REASON",
-    "if (process.env.SKIP_PIPELINE_CHECK === '1') {",
-    "  const reason = (process.env.PIPELINE_BYPASS_REASON || '').trim();",
-    "  if (reason.length < 12) {",
-    "    console.error('Pipeline bypass requires PIPELINE_BYPASS_REASON=\"<at least 12 chars>\" (or run: pipeline.js bypass --reason \"<text>\")');",
-    "    process.exit(1);",
-    "  }",
-    "  console.log(`Pipeline check skipped (reason: ${reason})`);",
-    "  process.exit(0);",
-    "}",
-    '',
-    "const pipeline = path.join(os.homedir(), '.local', 'bin', 'pipeline.js');",
-    "if (!fs.existsSync(pipeline)) {",
-    "  // No pipeline installed = allow commit (defensive: don't block users without the tool)",
-    "  process.exit(0);",
-    "}",
-    "const r = spawnSync(process.execPath, [pipeline, 'check'], { stdio: 'inherit' });",
-    "process.exit(r.status === null ? 1 : r.status);",
-    '',
-  ].join('\n');
-
-  fs.writeFileSync(preCommitJsPath, jsHelper);
-  if (!IS_WIN) {
-    try { fs.chmodSync(preCommitJsPath, 0o755); } catch { /* ignore */ }
-  }
-
-  // Pre-commit shim — bash on Unix, posix `#!/bin/sh` everywhere (Git for Windows ships sh)
-  const hookContent = [
-    '#!/bin/sh',
-    '# Pipeline enforcement pre-commit hook. Installed by cross-model-agents.',
-    '# Delegates to a Node.js helper for full cross-platform behavior.',
-    '',
-    'if ! command -v node >/dev/null 2>&1; then',
-    '  echo "WARNING: node not on PATH — pipeline check skipped." >&2',
-    '  exit 0',
-    'fi',
-    `exec node "$HOME/.githooks/pipeline-precommit.js" "$@"`,
-    '',
-  ].join('\n');
-
-  if (fs.existsSync(preCommitPath)) {
-    // Detect whether existing hook is ours; if so, replace cleanly.
-    const existing = fs.readFileSync(preCommitPath, 'utf8');
-    if (existing.includes('cross-model-agents') || existing.includes('pipeline-precommit.js')) {
-      fs.writeFileSync(preCommitPath, hookContent);
-      ok('Updated existing cross-model-agents pre-commit hook');
-    } else {
-      warn(`Found non-pipeline pre-commit hook at ${preCommitPath} — left untouched`);
-      info(`Merge manually or back up and re-run installer.`);
-    }
-  } else {
-    fs.writeFileSync(preCommitPath, hookContent);
-    ok(`Installed git pre-commit hook -> ${preCommitPath}`);
-  }
-  if (!IS_WIN) {
-    try { fs.chmodSync(preCommitPath, 0o755); } catch { /* ignore */ }
-  }
-
-  // CRITICAL: set core.hooksPath so the hook actually fires
-  try {
-    const currentHooksPath = execSync('git config --global core.hooksPath', { stdio: 'pipe' })
-      .toString().trim();
-    if (currentHooksPath && path.resolve(currentHooksPath) !== path.resolve(githooksDir)) {
-      warn(`git core.hooksPath is already set to "${currentHooksPath}" — pipeline hook will NOT fire.`);
-      info(`To enable: git config --global core.hooksPath "${githooksDir}"`);
-    } else if (!currentHooksPath) {
-      execSync(`git config --global core.hooksPath "${githooksDir}"`, { stdio: 'pipe' });
-      ok(`git core.hooksPath set to ${githooksDir}`);
-    } else {
-      ok(`git core.hooksPath already = ${githooksDir}`);
-    }
-  } catch {
-    // core.hooksPath unset throws on read; set it
-    try {
-      execSync(`git config --global core.hooksPath "${githooksDir}"`, { stdio: 'pipe' });
-      ok(`git core.hooksPath set to ${githooksDir}`);
-    } catch (e) {
-      fail(`Failed to set git core.hooksPath — run manually: git config --global core.hooksPath "${githooksDir}"`);
-    }
-  }
-
-  console.log('');
+    const { installHooks } = require('./install-hooks');
+    const hooksPath = installHooks();
+    ok(`Repository-local pipeline hooks installed -> ${hooksPath}`);
+    console.log('');
   } // end if !SKIP_HOOK
 
   // ─────────────────────────────────────────────────────────

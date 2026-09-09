@@ -1,0 +1,15 @@
+# Cross-model adversarial review is REQUIRED in this repository.
+#
+# The presence of this file at the repo root arms the commit gate: `git commit`
+# is refused until the pipeline gates have passed, and — critically — it is also
+# refused when pipeline state is MISSING. Without this marker, missing state is
+# treated as "nothing to enforce" and the gate silently allows every commit,
+# which is how the gate came to be inert everywhere it was nominally installed.
+#
+# This file MUST stay committed. `git worktree add` checks out a commit, so an
+# untracked or gitignored marker would vanish in exactly the fresh worktrees a
+# supervised ship run uses. Tracking it is what makes the gate hold every time.
+#
+# Verify with:  vzt-orca-flow doctor      (run from inside this repo)
+# Bypass (audited, logged with your email and reason):
+#   node ~/.local/bin/pipeline.js bypass --reason "<at least 12 chars>"

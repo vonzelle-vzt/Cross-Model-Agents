@@ -144,3 +144,11 @@ jobs:
 
       - name: Pipeline unit tests
         run: node tests/pipeline/test-pipeline.js
+
+      # Real-git integration: hook installation and removal. These were on disk
+      # but unrun by CI, and an oracle nobody runs is not coverage.
+      - name: Hook installer integration tests
+        run: node tests/pipeline/test-install-hooks.js
+
+      - name: Hook uninstaller integration tests
+        run: node tests/pipeline/test-uninstall-hooks.js

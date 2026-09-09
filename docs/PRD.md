@@ -68,7 +68,8 @@ The product is **infrastructure, not a chat product** — it ships as agents (`.
 │            .pipeline/state-<branch>.json                       │
 │            .pipeline/logs/<date>.jsonl                         │
 │                                                                │
-│  ~/.githooks/pre-commit → pipeline-precommit.js → exit 0/1     │
+│  <repo>/.git/cross-model-hooks/pre-commit                      │
+│            → pipeline-precommit.js → exit 0/1                  │
 └────────────────────────────────────────────────────────────────┘
         │                                          │
         │                                          ▼
@@ -162,7 +163,7 @@ Adding a new provider is a one-line change in `providers{}` + a reference in `ro
 
 | OS | Install | Hook | Pipeline CLI | Status |
 |---|---|---|---|---|
-| macOS | `install.sh` or `install.js` | `~/.githooks/pre-commit` (sh shim → node helper) | Node 18+ | ✅ |
+| macOS | `install.sh` / `install.js`, then `install-hooks.js <repo>` | `<repo>/.git/cross-model-hooks/pre-commit` (sh shim → node helper) | Node 18+ | ✅ |
 | Linux | `install.sh` or `install.js` | same | Node 18+ | ✅ |
 | Windows | `install.js` | same (Git for Windows ships sh) | Node 18+ | ✅ (v3.0.0) |
 
