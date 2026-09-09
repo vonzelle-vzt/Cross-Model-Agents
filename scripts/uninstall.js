@@ -4,7 +4,8 @@
 // Usage:
 //   node scripts/uninstall.js          # interactive
 //   node scripts/uninstall.js --yes    # unattended (accept all default removals)
-//   node scripts/uninstall.js --purge  # also remove the pre-commit hook + core.hooksPath
+//   node scripts/uninstall.js --purge  # also remove the LEGACY global hook + global core.hooksPath
+//   node scripts/uninstall.js --repo <path>   # disarm one repo wired by install-hooks.js
 
 'use strict';
 
@@ -25,14 +26,26 @@ const NC     = '\x1b[0m';
 
 let UNATTENDED = false;
 let PURGE = false;
+const REPOS = [];
 
-for (const arg of process.argv.slice(2)) {
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  const arg = argv[i];
   if (arg === '--yes' || arg === '-y') UNATTENDED = true;
   else if (arg === '--purge') PURGE = true;
-  else if (arg === '--help' || arg === '-h') {
-    console.log('Usage: node uninstall.js [--yes] [--purge]');
-    console.log('  --yes, -y  Unattended: remove agents/skills without prompting');
-    console.log('  --purge    Also remove pre-commit hook + git core.hooksPath setting');
+  else if (arg === '--repo') {
+    const value = argv[++i];
+    if (!value) { console.error('ERROR: --repo requires a path'); process.exit(1); }
+    REPOS.push(path.resolve(value));
+  } else if (arg.startsWith('--repo=')) {
+    REPOS.push(path.resolve(arg.slice('--repo='.length)));
+  } else if (arg === '--help' || arg === '-h') {
+    console.log('Usage: node uninstall.js [--yes] [--purge] [--repo <path> ...]');
+    console.log('  --yes, -y     Unattended: remove agents/skills without prompting');
+    console.log('  --purge       Also remove the LEGACY global hook (~/.githooks) + global core.hooksPath');
+    console.log('  --repo <path> Disarm a repo wired by install-hooks.js: removes');
+    console.log('                <repo>/.git/cross-model-hooks and unsets that repo\'s local');
+    console.log('                core.hooksPath. Repeatable. Never touches global git config.');
     process.exit(0);
   }
 }
@@ -106,6 +119,60 @@ async function main() {
   // Pipeline CLI in ~/.local/bin
   const localBin = path.join(HOME, '.local', 'bin', 'pipeline.js');
   if (rmIfExists(localBin)) ok('Removed ~/.local/bin/pipeline.js');
+
+  // Repo-local hooks written by install-hooks.js.
+  //
+  // These are deliberately NOT covered by --purge. --purge knows only the legacy
+  // global ~/.githooks layout, and a repo-local install is per repository with no
+  // registry of which repos were armed — so there is nothing to enumerate and
+  // guessing would mean walking the disk. The caller names the repo.
+  for (const repo of REPOS) {
+    const hooksDir = path.join(repo, '.git', 'cross-model-hooks');
+    const sentinel = path.join(hooksDir, '.cross-model-managed');
+    if (!fs.existsSync(hooksDir)) {
+      warn(`${repo}: no repo-local cross-model hooks — nothing to remove`);
+      continue;
+    }
+    // The sentinel is what proves we wrote this directory. Without it we are
+    // looking at somebody else's hooks and must not delete them.
+    if (!fs.existsSync(sentinel)) {
+      warn(`${repo}: ${hooksDir} is not managed by cross-model-agents — left untouched`);
+      continue;
+    }
+    // Unset the pointer BEFORE deleting the directory, so an interrupted run
+    // can never leave the repo pointing at hooks that no longer exist — git
+    // silently runs no hooks in that state, which is the same silent
+    // non-enforcement this whole feature exists to prevent.
+    try {
+      const current = execSync(`git -C "${repo}" config --local core.hooksPath`, { stdio: 'pipe' })
+        .toString().trim();
+      // Compare through realpath. On macOS a temp/checkout path reaches git as
+      // /private/var/... while path.resolve() yields /var/..., and a plain
+      // string compare then reads our OWN hooks dir as "someone else's" — which
+      // left core.hooksPath pointing at a directory this run then deleted. Git
+      // runs no hooks at all in that state, silently: the exact failure this
+      // whole feature exists to prevent, reintroduced by the uninstaller.
+      const same = (a, b) => {
+        try { return fs.realpathSync(a) === fs.realpathSync(b); }
+        catch { return path.resolve(a) === path.resolve(b); }
+      };
+      if (current && same(current, hooksDir)) {
+        execSync(`git -C "${repo}" config --local --unset core.hooksPath`, { stdio: 'pipe' });
+        ok(`${repo}: cleared local core.hooksPath`);
+      } else if (current) {
+        warn(`${repo}: local core.hooksPath points elsewhere (${current}) — left as is`);
+      }
+    } catch {
+      // Not set, or not a git repo. Nothing to clear either way.
+    }
+    if (rmIfExists(hooksDir)) ok(`${repo}: removed ${hooksDir}`);
+    if (fs.existsSync(path.join(repo, '.pipeline-required'))) {
+      warn(`${repo}: .pipeline-required left in place — it is a TRACKED file, so removing it is a repo change, not an uninstall. To stop requiring review here: git -C "${repo}" rm .pipeline-required`);
+    }
+  }
+  if (!REPOS.length) {
+    warn('No --repo given: repo-local hooks from install-hooks.js were NOT removed. Pass --repo <path> for each armed repo.');
+  }
 
   // Pre-commit hook + hooksPath
   if (PURGE) {

@@ -537,14 +537,18 @@ node scripts/uninstall.js --yes    # unattended
 node scripts/uninstall.js --purge  # removes the LEGACY global hook (~/.githooks) + clears global core.hooksPath
 ```
 
-> **Known gap:** `uninstall.js` only knows the legacy global `~/.githooks` layout. It does **not** remove the
-> repo-local hooks that `install-hooks.js` writes. To fully disarm one repo:
->
-> ```bash
-> git -C <repo> config --unset core.hooksPath
-> rm -rf <repo>/.git/cross-model-hooks
-> git -C <repo> rm .pipeline-required
-> ```
+To disarm a repo that `install-hooks.js` armed, name it:
+
+```bash
+node scripts/uninstall.js --repo <path-to-repo>   # repeatable
+```
+
+That removes `<repo>/.git/cross-model-hooks` and unsets **that repo's** local `core.hooksPath`. It refuses to touch a
+hooks directory lacking the `.cross-model-managed` sentinel, so it can never delete hooks it did not write, and it never
+touches global git config. There is no registry of armed repos, so nothing is auto-discovered — you name each one.
+
+The tracked `.pipeline-required` marker is deliberately left in place: deleting a committed file is a repository change,
+not an uninstall. To stop requiring review in a repo, remove it yourself with `git rm .pipeline-required`.
 
 
 ### What Gets Installed
