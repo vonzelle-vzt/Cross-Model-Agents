@@ -1,0 +1,4 @@
+# >>> vzt-orca-flow (managed) >>>
+setup:
+  command: ~/.orca/vzt/worktree-bootstrap.sh
+# <<< vzt-orca-flow (managed) <<<

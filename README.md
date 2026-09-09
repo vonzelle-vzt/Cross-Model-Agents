@@ -207,7 +207,8 @@ State lives in `.pipeline/state-<branch>.json` (project root, gitignored). Atomi
 - **Per-gate model tiering** — anti-slop and UI gates fan out across cheap worker models; devil's advocate stays on frontier. Configured in `config.json` under `routing.gates`.
 - **`pipeline.js doctor`** — single-command environment health check.
 - **`pipeline.js bypass --reason "<text>"`** — every commit-gate override is now logged, with a 12-char minimum reason.
-- **Cross-platform pre-commit hook** — installer sets `git core.hooksPath`. The hook actually fires out of the box on macOS, Linux, and Windows.
+- **Cross-platform pre-commit hook** — `scripts/install-hooks.js <repo>` installs a hook into a repo-local `.git/cross-model-hooks/` and points that repo's `core.hooksPath` at it. It fires out of the box on macOS, Linux, and Windows.
+- **Repo-local by design, never global** — the hook is wired per repository. It is deliberately *not* installed with `git config --global core.hooksPath`. A global hooks path silently takes over every repo that relies on the default `.git/hooks/` location, so existing `pre-commit` / `pre-push` hooks there stop firing with no warning. (A repo that sets its *own* local `core.hooksPath` — husky v9 does this — still wins over the global value, so those survive.) Opting one repo in must never disarm another.
 - **Atomic state writes + file locking** — no more lost gate results when multiple agents write in parallel.
 - **`status --json`** — machine-readable state for CI / IDE plugins.
 - **`gate --violations file.json`** — gates push full structured-JSON violation detail into pipeline state.
@@ -298,8 +299,8 @@ Pipeline Doctor — checking environment...
   ok  Node.js 20.19.6
   ok  Git: git version 2.53.0
   ok  Inside git repo: /path/to/your/repo
-  ok  git core.hooksPath = /home/you/.githooks
-  ok  pre-commit hook installed at /home/you/.githooks/pre-commit
+  ok  git core.hooksPath = /path/to/your/repo/.git/cross-model-hooks
+  ok  pre-commit hook installed at /path/to/your/repo/.git/cross-model-hooks/pre-commit
   ok  gh CLI available
   ok  claude CLI available
   ok  codex CLI available
@@ -498,7 +499,9 @@ node scripts/install.js
 
 Five phases: prereqs → core install (agents/skills/pipeline/hook) → optional CLI tools → optional MCP servers → summary.
 
-The installer also runs `git config --global core.hooksPath ~/.githooks` so the pre-commit hook actually fires. Without this, the previous releases were enforcement-in-name-only.
+Hooks are installed **per repository**, by `node scripts/install-hooks.js <path-to-repo>`. That writes a shim into `<repo>/.git/cross-model-hooks/` and sets `core.hooksPath` for that repo only. It refuses to clobber an existing custom or husky-managed hook, and it never touches global git config.
+
+> **The gate only enforces in repos that opt in.** A repo arms the gate by committing a `.pipeline-required` marker at its root. With the marker, missing pipeline state *blocks* the commit; without it, missing state is treated as "nothing to enforce" and the commit proceeds. That default is what made earlier releases enforcement-in-name-only: state lives in the gitignored `.pipeline/`, so every fresh checkout and every new `git worktree` started with no state and silently allowed everything. The marker must be **committed**, not merely staged — `git worktree add` checks out a commit, so an untracked marker disappears in exactly the worktrees a supervised run uses.
 
 ### Unattended / CI install
 
@@ -531,8 +534,18 @@ Functionally equivalent to `install.js` but lacks the new flags. Recommended onl
 ```bash
 node scripts/uninstall.js          # interactive
 node scripts/uninstall.js --yes    # unattended
-node scripts/uninstall.js --purge  # also remove pre-commit hook + clear core.hooksPath
+node scripts/uninstall.js --purge  # removes the LEGACY global hook (~/.githooks) + clears global core.hooksPath
 ```
+
+> **Known gap:** `uninstall.js` only knows the legacy global `~/.githooks` layout. It does **not** remove the
+> repo-local hooks that `install-hooks.js` writes. To fully disarm one repo:
+>
+> ```bash
+> git -C <repo> config --unset core.hooksPath
+> rm -rf <repo>/.git/cross-model-hooks
+> git -C <repo> rm .pipeline-required
+> ```
+
 
 ### What Gets Installed
 
@@ -542,8 +555,9 @@ node scripts/uninstall.js --purge  # also remove pre-commit hook + clear core.ho
 | Claude Code skills | 4 | `~/.claude/skills/` |
 | Codex agents | 21 | `~/.codex/agents/` |
 | Pipeline CLI | 1 | `~/.local/bin/pipeline.js` |
-| Pre-commit hook | 1 | `~/.githooks/pre-commit` (sh shim) |
-| Pre-commit Node helper | 1 | `~/.githooks/pipeline-precommit.js` |
+| Pre-commit hook | 1 per opted-in repo | `<repo>/.git/cross-model-hooks/pre-commit` (sh shim) |
+| Pre-commit Node helper | 1 per opted-in repo | `<repo>/.git/cross-model-hooks/pipeline-precommit.js` |
+| Enforcement marker | 1 per opted-in repo | `<repo>/.pipeline-required` (**must be committed**) |
 
 ---
 

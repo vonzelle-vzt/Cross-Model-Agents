@@ -4,12 +4,19 @@
 //
 // Run: node tests/pipeline/test-pipeline.js
 
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const PIPELINE_JS = path.resolve(__dirname, '../../scripts/pipeline.js');
-const ROOT = path.resolve(__dirname, '../..');
+const SOURCE_ROOT = path.resolve(__dirname, '../..');
+const ROOT = fs.mkdtempSync(path.join(require('os').tmpdir(), 'pipeline-test-'));
+execSync('git init -q', { cwd: ROOT });
+fs.copyFileSync(path.join(SOURCE_ROOT, 'config.json'), path.join(ROOT, 'config.json'));
+fs.writeFileSync(path.join(ROOT, '.gitignore'), '.pipeline/\n');
+execSync('git add .', { cwd: ROOT });
+execSync('git -c core.hooksPath=/dev/null -c user.name=Test -c user.email=test@example.invalid -c commit.gpgsign=false commit -qm initial', { cwd: ROOT });
+process.on('exit', () => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 let passed = 0;
 let failed = 0;
@@ -511,6 +518,163 @@ test('security gate blocks when routing.gates.security.blocking=true', () => {
 });
 
 cleanup();
+
+console.log('\n=== Review Freshness Regression Tests ===\n');
+
+function approve() {
+  assertEqual(run('gate anti_slop passed 8').exitCode, 0);
+  assertEqual(run('gate devils_advocate completed').exitCode, 0);
+  assertEqual(run('gate gap_analysis completed').exitCode, 0);
+}
+
+test('passing scored gates require threshold evidence', () => {
+  cleanup();
+  assertEqual(run('gate anti_slop passed 6').exitCode, 1);
+  assertEqual(run('gate ui_validation passed').exitCode, 1);
+});
+
+test('working file changes invalidate reviews and machine-readable status', () => {
+  cleanup();
+  const file = path.join(ROOT, 'freshness.js');
+  fs.writeFileSync(file, 'before');
+  approve();
+  assertEqual(run('check').exitCode, 0);
+  fs.writeFileSync(file, 'after');
+  assertEqual(run('check').exitCode, 2);
+  const status = JSON.parse(run('status --json').stdout);
+  assertEqual(status.commit_allowed, false);
+  assertEqual(status.gates.anti_slop.status, 'stale');
+  assert(status.missing.some(message => message.includes('stale')));
+  const hook = run('pre-commit', { input: JSON.stringify({ tool_input: { command: 'git commit -m test' } }) });
+  assertEqual(JSON.parse(hook.stdout).decision, 'deny');
+  approve();
+  assertEqual(run('check').exitCode, 0);
+  fs.unlinkSync(file);
+});
+
+test('staging reviewed content preserves approval but different staged content blocks', () => {
+  cleanup();
+  const file = path.join(ROOT, 'staging.js');
+  fs.writeFileSync(file, 'staged version');
+  approve();
+  execSync('git add staging.js', { cwd: ROOT });
+  assertEqual(run('check').exitCode, 0);
+  approve();
+  assertEqual(run('check').exitCode, 0);
+  fs.writeFileSync(file, 'unstaged version');
+  assertEqual(run('check').exitCode, 2);
+  approve();
+  assertEqual(run('check').exitCode, 2, 'staged old content was never reviewed');
+  execSync('git add staging.js', { cwd: ROOT });
+  assertEqual(run('check').exitCode, 0);
+  execSync('git rm --cached -f staging.js', { cwd: ROOT });
+  fs.unlinkSync(file);
+});
+
+test('new untracked files invalidate reviews', () => {
+  cleanup();
+  approve();
+  fs.writeFileSync(path.join(ROOT, 'new.js'), 'new code');
+  assertEqual(run('check').exitCode, 2);
+  fs.unlinkSync(path.join(ROOT, 'new.js'));
+});
+
+test('legacy approvals without a snapshot cannot authorize commits', () => {
+  cleanup();
+  approve();
+  const statePath = path.join(ROOT, '.pipeline', fs.readdirSync(path.join(ROOT, '.pipeline')).find(f => f.startsWith('state-')));
+  const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  for (const gate of Object.values(state.gates)) delete gate.snapshot;
+  fs.writeFileSync(statePath, JSON.stringify(state));
+  assertEqual(run('check').exitCode, 2);
+});
+
+test('root components paths require UI validation', () => {
+  cleanup();
+  run('track components/Button.js');
+  approve();
+  assertEqual(run('check').exitCode, 2);
+  assert(run('check').stdout.includes('ui_validation'));
+});
+cleanup();
+
+test('unmarked missing checkpoint preserves fail-open behavior', () => {
+  cleanup();
+  assertEqual(run('check').exitCode, 0);
+  const input = JSON.stringify({ tool_input: { command: 'git commit -m test' } });
+  assertEqual(run('pre-commit', { input }).stdout, '{}');
+});
+
+test('required marker blocks missing and malformed checkpoints with init guidance', () => {
+  cleanup();
+  const marker = path.join(ROOT, '.pipeline-required');
+  fs.writeFileSync(marker, '');
+  try {
+    assertEqual(run('check').exitCode, 2);
+    assert(run('check').stdout.includes('pipeline.js init'));
+    const input = JSON.stringify({ tool_input: { command: 'git commit -m test' } });
+    assertEqual(JSON.parse(run('pre-commit', { input }).stdout).decision, 'deny');
+    const status = run('status --json');
+    assertEqual(status.exitCode, 0);
+    assertEqual(JSON.parse(status.stdout).required, true);
+    assertEqual(run('init').exitCode, 0);
+    const before = JSON.parse(run('status --json').stdout);
+    assertEqual(run('init').exitCode, 0);
+    assertEqual(JSON.parse(run('status --json').stdout).session_id, before.session_id);
+    const statePath = path.join(ROOT, '.pipeline', fs.readdirSync(path.join(ROOT, '.pipeline')).find(f => f.startsWith('state-')));
+    fs.writeFileSync(statePath, '{broken');
+    assertEqual(run('check').exitCode, 2);
+  } finally {
+    fs.unlinkSync(marker);
+    cleanup();
+  }
+});
+
+test('frontend edits require UI review without an explicit track call', () => {
+  cleanup();
+  const file = path.join(ROOT, 'Component.tsx');
+  fs.writeFileSync(file, 'export default () => null;');
+  approve();
+  assertEqual(run('check').exitCode, 2);
+  assert(run('check').stdout.includes('ui_validation'));
+  fs.unlinkSync(file);
+  cleanup();
+});
+
+test('unchanged reviewed snapshot survives commit; dirty HEAD cannot be published', () => {
+  cleanup();
+  fs.writeFileSync(path.join(ROOT, 'reviewed.js'), 'reviewed change');
+  execSync('git add .', { cwd: ROOT });
+  approve();
+  execSync('git -c core.hooksPath=/dev/null -c user.name=Test -c user.email=test@example.invalid -c commit.gpgsign=false commit -qm fixture', { cwd: ROOT });
+  assertEqual(run('check').exitCode, 0);
+  execSync('git remote add origin https://github.com/example/fixture.git', { cwd: ROOT });
+  fs.writeFileSync(path.join(ROOT, 'dirty.js'), 'uncommitted');
+  approve();
+  const result = run('publish');
+  assertEqual(result.exitCode, 2);
+  assert(result.stderr.includes('Commit the reviewed snapshot'));
+  fs.unlinkSync(path.join(ROOT, 'dirty.js'));
+  cleanup();
+});
+
+test('freshness never overwrites historical review status', () => {
+  cleanup();
+  const file = path.join(ROOT, 'revert.js');
+  fs.writeFileSync(file, 'original');
+  approve();
+  fs.writeFileSync(file, 'changed');
+  run('gate security completed');
+  assertEqual(run('check').exitCode, 2);
+  fs.writeFileSync(file, 'original');
+  assertEqual(run('check').exitCode, 0);
+  fs.unlinkSync(file);
+  cleanup();
+});
+
+test('repository-local installer integration suite', () => {
+  execFileSync(process.execPath, [path.join(__dirname, 'test-install-hooks.js')], { stdio: 'inherit' });
+});
 
 // --- Summary ---
 
