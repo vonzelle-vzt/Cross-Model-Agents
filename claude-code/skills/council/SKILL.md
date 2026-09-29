@@ -8,7 +8,7 @@ requires: [codex-mcp-server]
 
 ## Description
 
-Initiate a structured debate between Claude Opus and Codex GPT-5.4 on any decision, architecture, plan, or problem. Both models take positions, argue, rebut, and synthesize until they reach consensus or identify irreconcilable tradeoffs. Uses Agent Teams for true parallel execution. Project-agnostic — works for any domain.
+Initiate a structured debate between Claude Opus and Codex (model from ~/.codex/config.toml) on any decision, architecture, plan, or problem. Both models take positions, argue, rebut, and synthesize until they reach consensus or identify irreconcilable tradeoffs. Uses Agent Teams for true parallel execution. Project-agnostic — works for any domain.
 
 ## User-invocable
 
@@ -66,7 +66,7 @@ Agent(
   subagent_type: "general-purpose",
   team_name: "council-{topic-slug}-team",
   name: "codex-advocate",
-  prompt: "You represent Codex GPT-5.4 in a structured debate. Call the Codex MCP server to get GPT-5.4's position, then return it verbatim.
+  prompt: "You represent Codex (model from ~/.codex/config.toml) in a structured debate. Call the Codex MCP server to get the Codex model's position, then return it verbatim.
 
 Use this MCP call:
 mcp__codex__codex(
@@ -83,7 +83,7 @@ State:
 4. WHAT YOU WOULD EXPLICITLY NOT DO (and why)
 
 Be direct. Take a real stance. The other model will challenge you.',
-  model: 'gpt-5.5',
+  model: '<the `model` value from ~/.codex/config.toml>',
   sandbox: 'read-only'
 )
 
@@ -91,7 +91,7 @@ Return the full response from Codex."
 )
 ```
 
-> **CLI fallback:** If the Codex MCP server is unavailable, the codex-advocate should fall back to: `codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"`
+> **CLI fallback:** If the Codex MCP server is unavailable, the codex-advocate should fall back to: `codex exec -s read-only --skip-git-repo-check "<prompt>" < /dev/null` (the `< /dev/null` matters: from a non-interactive shell `codex exec` otherwise waits forever on "Reading additional input from stdin")
 
 Display both positions to the user side-by-side.
 
@@ -128,7 +128,7 @@ Agent(
   subagent_type: "general-purpose",
   team_name: "council-{topic-slug}-team",
   name: "codex-rebuttal-{N}",
-  prompt: "Call the Codex MCP server to get GPT-5.4's rebuttal, then return it verbatim.
+  prompt: "Call the Codex MCP server to get the Codex model's rebuttal, then return it verbatim.
 
 mcp__codex__codex(
   prompt: 'DEBATE ROUND {N} — You are arguing with Claude Opus.
@@ -143,7 +143,7 @@ Instructions:
 4. Where you STILL DISAGREE: sharpen your argument
 
 End with your UPDATED POSITION (incorporating concessions).',
-  model: 'gpt-5.5',
+  model: '<the `model` value from ~/.codex/config.toml>',
   sandbox: 'read-only'
 )
 
@@ -183,7 +183,7 @@ Validate:
 4. Rate your agreement: FULL CONSENSUS / PARTIAL CONSENSUS / DEADLOCK
 
 If PARTIAL CONSENSUS or DEADLOCK, list the specific unresolved disagreements.',
-  model: 'gpt-5.5',
+  model: '<the `model` value from ~/.codex/config.toml>',
   sandbox: 'read-only'
 )
 
@@ -235,7 +235,7 @@ FULL CONSENSUS / PARTIAL CONSENSUS / DEADLOCK
 
 ## Reasoning Effort
 
-All Codex calls use GPT-5.4 which inherits `model_reasoning_effort = "xhigh"` from `~/.codex/config.toml`. This ensures maximum reasoning depth on every deliberation round.
+All Codex calls use the model and `model_reasoning_effort` set in `~/.codex/config.toml`: read the `model` value and pass it on every MCP call (the codex MCP server ignores that file and falls back to its own default when `model` is omitted); the `codex exec` CLI fallback inherits it without `-m`; raise the effort there (or pass `-c model_reasoning_effort=high`) when a deliberation needs more depth.
 
 ## Notes
 

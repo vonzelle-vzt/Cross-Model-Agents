@@ -1,6 +1,6 @@
 ---
 version: 2.0.0
-description: "Iterative adversarial plan review via Codex GPT-5.4"
+description: "Iterative adversarial plan review via Codex (model from ~/.codex/config.toml)"
 requires: [codex-mcp-server]
 ---
 
@@ -8,7 +8,7 @@ requires: [codex-mcp-server]
 
 ## Description
 
-Send the current plan or implementation to Codex GPT-5.4 for adversarial review. Runs an iterative review loop where Codex critiques and Claude revises until the plan is approved or 5 rounds are reached. Uses the Codex MCP server (subscription auth, no API key needed).
+Send the current plan or implementation to Codex (model from ~/.codex/config.toml) for adversarial review. Runs an iterative review loop where Codex critiques and Claude revises until the plan is approved or 5 rounds are reached. Uses the Codex MCP server (subscription auth, no API key needed).
 
 ## User-invocable
 
@@ -30,7 +30,7 @@ REVIEW_FILE="/tmp/codex-review-${UUID}.md"
 
 ### Step 2: Determine Model & Context
 
-- Default model: `gpt-5.5`
+- Default model: the `model` value in `~/.codex/config.toml`. Read it and pass it explicitly on the MCP call: the codex MCP server does NOT read that file and falls back to its own default model when `model` is omitted. The `codex exec` CLI fallback inherits the config, so it takes no `-m` unless the user gave an override.
 - If user specified a model override (e.g., `/codex-review o4-mini`), use that model instead
 - Detect if we're inside a git repo: `git rev-parse --git-dir 2>/dev/null`
 - If NOT in a git repo and using CLI fallback, add `--skip-git-repo-check` to all `codex` commands
@@ -65,12 +65,12 @@ For each finding:
 End your review with exactly one of:
 VERDICT: APPROVED
 VERDICT: REVISE",
-  model: "gpt-5.5",
+  model: "<the `model` value from ~/.codex/config.toml>",
   sandbox: "read-only"
 )
 ```
 
-> **CLI fallback:** If the Codex MCP server is unavailable, fall back to: `codex exec -m gpt-5.5 -s read-only --skip-git-repo-check "<prompt>"`
+> **CLI fallback:** If the Codex MCP server is unavailable, fall back to: `codex exec -s read-only --skip-git-repo-check "<prompt>" < /dev/null`, adding `-m <override>` only when the user passed a model override (without it, the model comes from `~/.codex/config.toml`). The `< /dev/null` matters: from a non-interactive shell, `codex exec` otherwise waits forever on "Reading additional input from stdin".
 
 **Important notes:**
 - The Codex MCP server authenticates via your Pro/MAX subscription (no OPENAI_API_KEY needed)
