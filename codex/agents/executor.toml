@@ -1,3 +1,5 @@
+name = "executor"
+description = "Implement approved plans end-to-end, keep changes minimal, and preserve existing architecture unless constraints require otherwise."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"

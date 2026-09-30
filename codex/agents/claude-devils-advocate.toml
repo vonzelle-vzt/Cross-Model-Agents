@@ -1,3 +1,5 @@
+name = "claude-devils-advocate"
+description = "You are an adversarial review orchestrator."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"

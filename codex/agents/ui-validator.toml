@@ -1,3 +1,5 @@
+name = "ui-validator"
+description = "You are the UI Validation Gate."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"

@@ -1,3 +1,5 @@
+name = "claude-frontend"
+description = "You are a frontend development orchestrator."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "workspace-write"

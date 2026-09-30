@@ -1,3 +1,5 @@
+name = "claude-security"
+description = "You are a security audit orchestrator."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"

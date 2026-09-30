@@ -1,3 +1,5 @@
+name = "explorer"
+description = "Focus on rapid discovery: map files, data flow, dependencies, and unknowns."
 model = "gpt-5.5-mini"
 model_reasoning_effort = "high"
 model_context_window = 128000

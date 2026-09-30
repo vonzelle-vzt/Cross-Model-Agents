@@ -1,3 +1,5 @@
+name = "security"
+description = "Audit for secrets exposure, unsafe command patterns, and policy regressions."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"

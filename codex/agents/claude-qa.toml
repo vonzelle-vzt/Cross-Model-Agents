@@ -1,3 +1,5 @@
+name = "claude-qa"
+description = "You are a QA orchestrator."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
